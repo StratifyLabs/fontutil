@@ -127,6 +127,11 @@ int gen_fonts(const char * def_file, const char * bitmap_file, const char * font
 	int offset;
 	int ret;
 
+	if( bmp.fileno() < 0 ){
+		printf("Failed to open bitmap file\n");
+		return -1;
+	}
+
 	if( def.open(def_file, File::RDONLY) < 0 ){
 		printf("Failed to open definition file\n");
 		return 0;

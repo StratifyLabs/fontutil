@@ -5,7 +5,6 @@
 #include <sapi/var.hpp>
 #include <sapi/sgfx.hpp>
 
-
 typedef struct {
 	u16 num_chars;
 	u16 num_kernings;
@@ -43,6 +42,11 @@ static int get_kerning(File & def, bmpfont_kerning_t & k);
 static int scan_char(File & def, bmpfont_char_t & d);
 static int get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap * master);
 
+static void show_file_font(const char * path);
+static void show_font(Font & f);
+static void show_system_font(int idx);
+static void clean_path(const char * path, const char * suffix);
+
 static int gen_fonts(const char * def_file,
 		const char * bitmap_file,
 		const char * font_file,
@@ -59,7 +63,25 @@ int main(int argc, char * argv[]){
 
 	Cli cli(argc, argv);
 
-	mkdir("/home/font", 0666);
+	if( cli.is_option("-show") ){
+		path = cli.get_option_argument("-show");
+		printf("Show Font %s\n", path.c_str());
+		show_file_font(path);
+		exit(0);
+	}
+
+	if( cli.is_option("-clean") ){
+		path = cli.get_option_argument("-clean");
+		printf("Cleaning directory %s from sbf files\n", path.c_str());
+		clean_path(path, "sbf");
+		exit(0);
+	}
+
+	if( cli.is_option("-system") ){
+		printf("Show System font %d\n", cli.get_option_value("-system"));
+		show_system_font( cli.get_option_value("-system") );
+		exit(0);
+	}
 
 	if( cli.is_option("-i") ){
 		path = cli.get_option_argument("-i");
@@ -154,6 +176,7 @@ int gen_fonts(const char * def_file, const char * bitmap_file, const char * font
 	get_max(def, max_width, max_height);
 	header.max_word_width = Bitmap::calc_word_width(max_width);
 	header.max_height = max_height;
+	header.version = SG_VERSION;
 
 
 	if( charset != 0 ){
@@ -227,7 +250,12 @@ int gen_fonts(const char * def_file, const char * bitmap_file, const char * font
 			character.yoffset = ch.yoffset;
 			character.xoffset = ch.xoffset;
 			character.xadvance = ch.xadvance;
-			printf("Char %d is %d x %d at %d advance %d index:%d\n", ch.id, character.width, character.height, offset, character.xadvance,
+			printf("Char %d is %d x %d at %d advance %d index:%d\n",
+					ch.id,
+					character.width,
+					character.height,
+					offset,
+					character.xadvance,
 					font.seek(0, File::CURRENT));
 			if( font.write(&character, sizeof(character)) != sizeof(character) ){
 				perror("failed to write char entry");
@@ -476,6 +504,8 @@ int get_char(File & def, bmpfont_char_t & d, uint8_t ascii){
 	String str;
 	String strm;
 
+	str.set_capacity(256);
+
 	while( def.gets(str) != 0 ){
 		Token t(str, " \n");
 
@@ -544,4 +574,68 @@ int scan_char(File & def, bmpfont_char_t & d){
 		}
 	}
 	return -1;
+}
+
+void show_system_font(int idx){
+	Assets::init();
+	Font * f;
+
+	f = Assets::font(idx);
+	if( f != 0 ){
+		printf("Show System font %d of %d\n", idx, Assets::font_count());
+		show_font(*f);
+	} else {
+		printf("System font %d does not exist\n", idx);
+	}
+}
+
+void show_file_font(const char * path){
+	FontFile ff;
+
+	printf("Show font: %s\n", path);
+
+	if( ff.set_file(path) < 0 ){
+		printf("Failed to open font: '%s'\n", path);
+		perror("Open failed");
+		return;
+	}
+
+	show_font(ff);
+}
+
+void show_font(Font & f){
+	Bitmap b;
+	int i;
+
+	printf("Alloc bitmap %d x %d\n", f.get_width(), f.get_height());
+	b.alloc(f.get_width(), f.get_height());
+
+	for(i=0; i < Font::CHARSET_SIZE; i++){
+		printf("Character: %c\n", Font::charset()[i]);
+		b.clear();
+		f.draw_char(Font::charset()[i], b, sg_point(0,0));
+		printf("\twidth:%d height:%d xadvance:%d\n",
+				f.character().width, f.character().height, f.character().xadvance);
+		b.show();
+	}
+}
+
+void clean_path(const char * path, const char * suffix){
+	Dir d;
+	const char * entry;
+	String str;
+
+	if( d.open(path) < 0 ){
+		printf("Failed to open path: '%s'\n", path);
+	}
+
+	while( (entry = d.read()) != 0 ){
+		str = File::suffix(entry);
+		if( str == "sbf" ){
+			str.clear();
+			str << path << "/" << entry;
+			printf("Removing file: %s\n", str.c_str());
+			File::remove(str);
+		}
+	}
 }

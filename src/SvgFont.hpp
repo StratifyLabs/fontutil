@@ -13,14 +13,13 @@
 class SvgFont {
 public:
 	SvgFont();
-	virtual ~SvgFont();
 
 	int convert_file(const char * path);
 
 private:
-	void parse_svg_path(const char * d);
+	int parse_svg_path(const char * d);
 
-	static const char * path_commands_space(){ return "MmCcSsLlHhVvQqTtAaZz "; }
+	static const char * path_commands_space(){ return "MmCcSsLlHhVvQqTtAaZz \n\t"; }
 	static const char * path_commands(){ return "MmCcSsLlHhVvQqTtAaZz"; }
 	static bool is_command_char(char c);
 
@@ -31,9 +30,10 @@ private:
 		TOTAL_STATE
 	};
 
-	int m_state;
-	sg_point_t m_current_point;
 
+
+
+	int parse_bounds(const char * value);
 
 	int parse_path_moveto_absolute(const char * path);
 	int parse_path_moveto_relative(const char * path);
@@ -56,6 +56,22 @@ private:
 	int parse_number_arguments(const char * path, float * dest, u32 n);
 
 	int seek_path_command(const char * path);
+
+	Point convert_svg_coord(float x, float y, bool is_absolute = true);
+
+	enum {
+		OBJECT_MAX = 192
+	};
+
+	int m_state;
+	Point m_start_point;
+	Point m_current_point;
+	Point m_control_point;
+	sg_bounds_t m_bounds;
+	float m_scale;
+	int m_object;
+	sg_vector_primitive_t m_objs[OBJECT_MAX];
+
 
 };
 

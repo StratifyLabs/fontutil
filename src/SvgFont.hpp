@@ -59,6 +59,10 @@ private:
 
 	Point convert_svg_coord(float x, float y, bool is_absolute = true);
 
+	void analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const VectorMap & map, bool recheck);
+	void shift_icon(sg_vector_icon_t & icon, Point shift);
+	void scale_icon(sg_vector_icon_t & icon, float scale);
+
 	enum {
 		OBJECT_MAX = 192
 	};
@@ -67,10 +71,12 @@ private:
 	Point m_start_point;
 	Point m_current_point;
 	Point m_control_point;
-	sg_bounds_t m_bounds;
+	sg_region_t m_bounds;
 	float m_scale;
 	int m_object;
 	sg_vector_primitive_t m_objs[OBJECT_MAX];
+
+
 
 
 };

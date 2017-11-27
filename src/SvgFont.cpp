@@ -31,66 +31,191 @@ int SvgFont::convert_file(const char * path){
 	}
 
 	int j;
-
 	DisplayDev display;
 
 	display.init("/dev/display0");
 	display.set_pen(Pen(1,1));
+	VectorMap map(display);
 
-	for(j=100; j < 200; j++){
+	//map.set_point(sg_point(display.width()/2,display.height()/2));
+	//map.set_dim(display.width(), display.width());
 
-		//d is the path
-		access.sprintf("glyphs[%d].attrs.d", j);
-		if( font.read_str(access, value) >= 0 ){
-			if( parse_svg_path(value.c_str()) < 0 ){
-				return -1;
-			}
-		} else {
-			printf("Failed to read %s\n", access.c_str());
+
+	j = 65;
+	//for(j=60; j < 75; j++){
+	//d is the path
+	access.sprintf("glyphs[%d].attrs.d", j);
+	if( font.read_str(access, value) >= 0 ){
+		if( parse_svg_path(value.c_str()) < 0 ){
 			return -1;
 		}
+	} else {
+		printf("Failed to read %s\n", access.c_str());
+		return -1;
+	}
 
-		printf("%d elements\n", m_object);
+	printf("%d elements\n", m_object);
 
-		sg_vector_icon_t icon;
+	sg_vector_icon_t icon;
 
-		icon.fill_total = 0;
-		icon.primitives = m_objs;
-		icon.total = m_object;
+	icon.fill_total = 0;
+	icon.primitives = m_objs;
+	icon.total = m_object;
 
-		Vector::show(icon);
+	//Vector::show(icon);
 
+	display.clear();
 
+	map.set_rotation(0);
 
-		VectorMap map(display);
+	Vector::draw(display, icon, map);
 
-		int i;
-		for(i=0; i < SG_TRIG_POINTS; i+=10){
-			display.clear();
+	//display.draw_arc(sg_point(65, 90), sg_dim(10,10), 0, SG_TRIG_POINTS);
+	sg_region_t bounds;
+	bounds.point.x = 8;
+	bounds.point.y = 0;
+	bounds.dim.width = display.width()-16;
+	bounds.dim.height = display.height();
 
-			map.set_rotation(i);
+	display.refresh();
 
-			Vector::draw(display, icon, map);
+	analyze_icon(display, icon, map, true);
 
-			display.refresh();
-			Timer::wait_msec(30);
+	//display.draw_pour(sg_point(display.width()/2, display.height()/2), bounds);
 
-		}
+	//display.refresh();
 
+#if 0
+	Timer::wait_msec(1000);
+
+	int i;
+	for(i=0; i < SG_TRIG_POINTS; i+=10){
 		display.clear();
 
-		map.set_rotation(0);
+		map.set_rotation(i);
 
 		Vector::draw(display, icon, map);
 
 		display.refresh();
+		Timer::wait_msec(30);
 
 	}
-
+#endif
+	//}
 
 	return 0;
 
 }
+
+void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const VectorMap & map, bool recheck){
+	Region region = Vector::find_active_region(bitmap);
+	Region target;
+	sg_size_t width = bitmap.width() - bitmap.margin_left() - bitmap.margin_right();
+	sg_point_t map_shift;
+	sg_point_t bitmap_shift;
+
+	target.set_point(Point(0, 0));
+	target.set_dim(Dim(width, width));
+
+	printf("Active region %d,%d %dx%d\n", region.x(), region.y(), region.width(), region.height());
+	printf("Target region %d,%d %dx%d\n", target.x(), target.y(), target.width(), target.height());
+
+	bitmap_shift.x = (bitmap.width()/2 - region.width()/2) - region.x();
+	bitmap_shift.y = (bitmap.width()/2 - region.height()/2) - region.y();
+	printf("Offset Error is %d,%d\n", bitmap_shift.x, bitmap_shift.y);
+
+	map_shift.x = (bitmap_shift.x * SG_MAX*2 + map.width()/2) / map.width();
+	map_shift.y = (bitmap_shift.y * SG_MAX*2 + map.height()/2) / map.height();
+
+	printf("Map Shift is %d,%d\n", map_shift.x, map_shift.y);
+
+
+
+	if( recheck ){
+		shift_icon(icon, map_shift);
+
+		Timer::wait_msec(2000);
+
+		bitmap.clear();
+
+		Vector::draw(bitmap, icon, map);
+
+		bitmap.refresh();
+
+		analyze_icon(bitmap, icon, map, false);
+	}
+
+
+
+	//bitmap.draw_rectangle(region.point(), region.dim());
+}
+
+void SvgFont::shift_icon(sg_vector_icon_t & icon, Point shift){
+	u16 type;
+	int i;
+	for(i=0; i < icon.total; i++){
+		sg_vector_primitive_t * primitive = (sg_vector_primitive_t *)icon.primitives + i;
+		type = primitive->type & ~(SG_ENABLE_FLAG);
+		switch(type){
+		case SG_LINE:
+			primitive->line.p1 = Point(primitive->line.p1) + shift;
+			primitive->line.p2 = Point(primitive->line.p2) + shift;
+			break;
+		case SG_ARC:
+			primitive->arc.center = Point(primitive->arc.center) + shift;
+			break;
+		case SG_POUR:
+			primitive->pour.center = Point(primitive->pour.center) + shift;
+			break;
+		case SG_QUADRATIC_BEZIER:
+			primitive->quadratic_bezier.p1 = Point(primitive->quadratic_bezier.p1) + shift;
+			primitive->quadratic_bezier.p2 = Point(primitive->quadratic_bezier.p2) + shift;
+			primitive->quadratic_bezier.p3 = Point(primitive->quadratic_bezier.p3) + shift;
+			break;
+		case SG_CUBIC_BEZIER:
+			primitive->cubic_bezier.p1 = Point(primitive->cubic_bezier.p1) + shift;
+			primitive->cubic_bezier.p2 = Point(primitive->cubic_bezier.p2) + shift;
+			primitive->cubic_bezier.p3 = Point(primitive->cubic_bezier.p3) + shift;
+			primitive->cubic_bezier.p4 = Point(primitive->cubic_bezier.p4) + shift;
+			break;
+		}
+	}
+}
+
+void SvgFont::scale_icon(sg_vector_icon_t & icon, float scale){
+	u16 type;
+	int i;
+	for(i=0; i < icon.total; i++){
+		sg_vector_primitive_t * primitive = (sg_vector_primitive_t *)icon.primitives + i;
+		type = primitive->type & ~(SG_ENABLE_FLAG);
+		switch(type){
+		case SG_LINE:
+			primitive->line.p1 = Point(primitive->line.p1) * scale;
+			primitive->line.p2 = Point(primitive->line.p2) * scale;
+			break;
+		case SG_ARC:
+			primitive->arc.center = Point(primitive->arc.center) * scale;
+			primitive->arc.rx = rintf((float)primitive->arc.rx * scale);
+			primitive->arc.ry = rintf((float)primitive->arc.ry * scale);
+			break;
+		case SG_POUR:
+			primitive->pour.center = Point(primitive->pour.center) * scale;
+			break;
+		case SG_QUADRATIC_BEZIER:
+			primitive->quadratic_bezier.p1 = Point(primitive->quadratic_bezier.p1) * scale;
+			primitive->quadratic_bezier.p2 = Point(primitive->quadratic_bezier.p2) * scale;
+			primitive->quadratic_bezier.p3 = Point(primitive->quadratic_bezier.p3) * scale;
+			break;
+		case SG_CUBIC_BEZIER:
+			primitive->cubic_bezier.p1 = Point(primitive->cubic_bezier.p1) * scale;
+			primitive->cubic_bezier.p2 = Point(primitive->cubic_bezier.p2) * scale;
+			primitive->cubic_bezier.p3 = Point(primitive->cubic_bezier.p3) * scale;
+			primitive->cubic_bezier.p4 = Point(primitive->cubic_bezier.p4) * scale;
+			break;
+		}
+	}
+}
+
 
 
 int SvgFont::parse_svg_path(const char * d){
@@ -215,14 +340,9 @@ Point SvgFont::convert_svg_coord(float x, float y, bool is_absolute){
 	float temp_y;
 	sg_point_t point;
 
-	if( is_absolute ){
-		//shift
-		temp_x = x - m_bounds.top_left.x;
-		temp_y = y - m_bounds.top_left.y;
-	} else {
-		temp_x = x;
-		temp_y = y;
-	}
+
+	temp_x = x;
+	temp_y = y;
 
 	//scale
 	temp_x = temp_x * m_scale;
@@ -230,12 +350,12 @@ Point SvgFont::convert_svg_coord(float x, float y, bool is_absolute){
 
 	if( is_absolute ){
 		//shift
-		temp_x = temp_x - SG_MAP_MAX/2 + 2*m_bounds.top_left.x*m_scale;
-		temp_y = temp_y + SG_MAP_MAX/2 - m_bounds.top_left.y*m_scale;
+		temp_x = temp_x - SG_MAP_MAX/2;
+		temp_y = temp_y + SG_MAP_MAX/2;
 	}
 
-	point.x = roundf(temp_x);
-	point.y = roundf(temp_y);
+	point.x = rintf(temp_x);
+	point.y = rintf(temp_y);
 
 	return point;
 }
@@ -251,34 +371,29 @@ int SvgFont::seek_path_command(const char * path){
 
 int SvgFont::parse_bounds(const char * value){
 	float values[4];
-	sg_dim_t scale;
 	float scale_factor;
 
 	if( parse_number_arguments(value, values, 4) != 4 ){
 		return -1;
 	}
-	m_bounds.top_left.x = roundf(values[0]);
-	m_bounds.top_left.y = roundf(values[1]);
-	m_bounds.bottom_right.x = roundf(values[2]);
-	m_bounds.bottom_right.y = roundf(values[3]);
+	m_bounds.point.x = roundf(values[0]);
+	m_bounds.point.y = roundf(values[1]);
+	m_bounds.dim.width = roundf(values[2]) - m_bounds.point.x + 1;
+	m_bounds.dim.height = roundf(values[3]) - m_bounds.point.y + 1;
 
-	scale.width = m_bounds.bottom_right.x - m_bounds.top_left.x;
-	scale.height = m_bounds.bottom_right.y - m_bounds.top_left.y;
-
-	if( scale.width > scale.height ){
-		scale_factor = scale.width;
+	if( m_bounds.dim.width > m_bounds.dim.height ){
+		scale_factor = m_bounds.dim.width;
 	} else {
-		scale_factor = scale.height;
+		scale_factor = m_bounds.dim.height;
 	}
 
-	m_scale = (SG_MAP_MAX) / scale_factor;
+	m_scale = (float)(SG_MAP_MAX*2) / scale_factor ;
 
-
-	printf("Bounds: (%d, %d) (%d, %d)\n",
-			m_bounds.top_left.x,
-			m_bounds.top_left.y,
-			m_bounds.bottom_right.x,
-			m_bounds.bottom_right.y);
+	printf("Bounds: (%d, %d) (%dx%d)\n",
+			m_bounds.point.x,
+			m_bounds.point.y,
+			m_bounds.dim.width,
+			m_bounds.dim.height);
 	return 0;
 }
 

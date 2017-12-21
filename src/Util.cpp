@@ -1,9 +1,5 @@
-/*
- * Util.cpp
- *
- *  Created on: Nov 25, 2017
- *      Author: tgil
- */
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
+
 
 #include "Util.hpp"
 

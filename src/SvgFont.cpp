@@ -1,9 +1,5 @@
-/*
- * Svg.cpp
- *
- *  Created on: Nov 25, 2017
- *      Author: tgil
- */
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
+
 
 #include <cmath>
 #include <sapi/fmt.hpp>
@@ -11,6 +7,23 @@
 #include <sapi/sys.hpp>
 #include <sapi/hal.hpp>
 #include "SvgFont.hpp"
+
+void sg_point_unmap(sg_point_t * d, const sg_vector_map_t * m){
+	sg_api()->point_rotate(d, (SG_TRIG_POINTS - m->rotation) % SG_TRIG_POINTS);
+	//map to the space
+	s32 tmp;
+	//x' = m->region.point.x + ((x + SG_MAX) * m->region.dim.width) / (SG_MAX-SG_MIN);
+	//y' = m->region.point.y + ((y + SG_MAX) * m->region.dim.height) / (SG_MAX-SG_MIN);
+
+	//(x' - m->region.point.x)*(SG_MAX-SG_MIN)/ m->region.dim.width - SG_MAX = x
+	printf("%d - %d * %d / %d\n", d->x, m->region.point.x, (SG_MAX-SG_MIN), m->region.dim.width);
+	tmp = ((d->x - m->region.point.x)*(SG_MAX-SG_MIN) + m->region.dim.width/2) / m->region.dim.width;
+	d->x = tmp - SG_MAX;
+
+	tmp = ((d->y - m->region.point.y)*(SG_MAX-SG_MIN) + m->region.dim.height/2) / m->region.dim.height;
+	d->y = tmp - SG_MAX;
+
+}
 
 SvgFont::SvgFont() {
 	// TODO Auto-generated constructor stub
@@ -23,91 +36,131 @@ int SvgFont::convert_file(const char * path){
 	Son<4> font;
 	String value(2048);
 	String access;
+	DisplayDev display;
+	sg_point_t pour_points[MAX_FILL_POINTS];
+	int j;
+	int i;
+	int ret;
+	int num_fill_points;
+
 
 	if( font.open_read(path) < 0 ){ return -1; }
 
 	if( font.read_str("glyphs[0].attrs.bbox", value) >= 0 ){
 		parse_bounds(value.c_str());
+		printf("Bounds: %d,%d %dx%d\n", m_bounds.point.x, m_bounds.point.y, m_bounds.dim.width, m_bounds.dim.height);
 	}
 
-	int j;
-	DisplayDev display;
 
 	display.init("/dev/display0");
 	display.set_pen(Pen(1,1));
 	VectorMap map(display);
+	Bitmap fill(display.dim());
 
 	//map.set_point(sg_point(display.width()/2,display.height()/2));
 	//map.set_dim(display.width(), display.width());
 
 
-	j = 65;
-	//for(j=60; j < 75; j++){
-	//d is the path
-	access.sprintf("glyphs[%d].attrs.d", j);
-	if( font.read_str(access, value) >= 0 ){
-		if( parse_svg_path(value.c_str()) < 0 ){
+
+	j = 7;
+	for(j=150; j < 200;j++){
+		//d is the path
+		printf("Any errors: %d\n", font.get_error());
+		access.sprintf("glyphs[%d].attrs.glyphName", j);
+		if( (ret = font.read_str(access, value)) > 0 ){
+			printf("Glyph Name: %d:%s\n", ret, value.c_str());
+		} else {
+			printf("SOn error %d\n", font.get_error());
+			exit(1);
+		}
+
+		access.sprintf("glyphs[%d].attrs.d", j);
+		if( font.read_str(access, value) >= 0 ){
+			printf("Read value:%s\n", value.c_str());
+			if( parse_svg_path(value.c_str()) < 0 ){
+				return -1;
+			}
+		} else {
+			printf("Failed to read %s\n", access.c_str());
 			return -1;
 		}
-	} else {
-		printf("Failed to read %s\n", access.c_str());
-		return -1;
-	}
 
-	printf("%d elements\n", m_object);
+		printf("%d elements\n", m_object);
 
-	sg_vector_icon_t icon;
 
-	icon.fill_total = 0;
-	icon.primitives = m_objs;
-	icon.total = m_object;
+		sg_vector_path_t vector_path;
 
-	//Vector::show(icon);
+		vector_path.icon.count = m_object;
+		vector_path.icon.list = m_path_description_list;
+		vector_path.region = display.get_viewable_region();
 
-	display.clear();
 
-	map.set_rotation(0);
 
-	Vector::draw(display, icon, map);
+		//Vector::show(icon);
 
-	//display.draw_arc(sg_point(65, 90), sg_dim(10,10), 0, SG_TRIG_POINTS);
-	sg_region_t bounds;
-	bounds.point.x = 8;
-	bounds.point.y = 0;
-	bounds.dim.width = display.width()-16;
-	bounds.dim.height = display.height();
-
-	display.refresh();
-
-	analyze_icon(display, icon, map, true);
-
-	//display.draw_pour(sg_point(display.width()/2, display.height()/2), bounds);
-
-	//display.refresh();
-
-#if 0
-	Timer::wait_msec(1000);
-
-	int i;
-	for(i=0; i < SG_TRIG_POINTS; i+=10){
 		display.clear();
 
-		map.set_rotation(i);
+		map.set_rotation(0);
 
-		Vector::draw(display, icon, map);
+		Vector::draw_path(display, vector_path, map);
 
 		display.refresh();
-		Timer::wait_msec(30);
+		display.wait(1000);
 
-	}
+		analyze_icon(display, vector_path, map, true);
+
+		display.wait(1000);
+		display.refresh();
+
+		find_all_fill_points(display, fill, display.get_viewable_region(), 6);
+
+#if 0
+		display.set_pen_flags(Pen::FLAG_IS_BLEND);
+		display.draw_bitmap(sg_point(0,0), fill);
+#else
+
+		num_fill_points = calculate_pour_points(display, fill, pour_points, MAX_FILL_POINTS);
+		if( num_fill_points < MAX_FILL_POINTS ){
+			for(i=0; i < num_fill_points; i++){
+				sg_point_t pour_point;
+				pour_point = pour_points[i];
+				sg_point_unmap(&pour_point, map);
+				if( m_object < PATH_DESCRIPTION_MAX ){
+					m_path_description_list[m_object] = Vector::get_path_pour(pour_point);
+					m_object++;
+				} else {
+					printf("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST\n");
+				}
+			}
+		} else {
+			printf("FAILED -- TOO MANY FILL POINTS\n");
+		}
+
+		//if entire display is poured, there is a rogue fill point
+
+		display.clear();
+
+		printf("Draw final\n");
+		vector_path.icon.count = m_object;
+
+		Timer t;
+		t.start();
+		Vector::draw_path(display, vector_path, map);
+		t.stop();
+		printf("Draw time is %ld\n", t.usec());
 #endif
-	//}
+
+		display.wait(1000);
+		display.refresh();
+
+		printf("Done refresh\n");
+	}
 
 	return 0;
 
 }
 
-void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const VectorMap & map, bool recheck){
+void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck){
 	Region region = Vector::find_active_region(bitmap);
 	Region target;
 	sg_size_t width = bitmap.width() - bitmap.margin_left() - bitmap.margin_right();
@@ -132,17 +185,15 @@ void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const Vecto
 
 
 	if( recheck ){
-		shift_icon(icon, map_shift);
-
-		Timer::wait_msec(2000);
+		shift_icon(vector_path.icon, map_shift);
 
 		bitmap.clear();
 
-		Vector::draw(bitmap, icon, map);
+		Vector::draw_path(bitmap, vector_path, map);
 
 		bitmap.refresh();
 
-		analyze_icon(bitmap, icon, map, false);
+		analyze_icon(bitmap, vector_path, map, false);
 	}
 
 
@@ -150,67 +201,59 @@ void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const Vecto
 	//bitmap.draw_rectangle(region.point(), region.dim());
 }
 
-void SvgFont::shift_icon(sg_vector_icon_t & icon, Point shift){
-	u16 type;
-	int i;
-	for(i=0; i < icon.total; i++){
-		sg_vector_primitive_t * primitive = (sg_vector_primitive_t *)icon.primitives + i;
-		type = primitive->type & ~(SG_ENABLE_FLAG);
-		switch(type){
-		case SG_LINE:
-			primitive->line.p1 = Point(primitive->line.p1) + shift;
-			primitive->line.p2 = Point(primitive->line.p2) + shift;
+void SvgFont::shift_icon(sg_vector_path_icon_t & icon, Point shift){
+	u32 i;
+	for(i=0; i < icon.count; i++){
+		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
+		switch(description->type){
+		case SG_VECTOR_PATH_MOVE:
+			description->move.point = Point(description->move.point) + shift;
 			break;
-		case SG_ARC:
-			primitive->arc.center = Point(primitive->arc.center) + shift;
+		case SG_VECTOR_PATH_LINE:
+			description->line.point = Point(description->line.point) + shift;
 			break;
-		case SG_POUR:
-			primitive->pour.center = Point(primitive->pour.center) + shift;
+		case SG_VECTOR_PATH_POUR:
+			description->pour.point = Point(description->pour.point) + shift;
 			break;
-		case SG_QUADRATIC_BEZIER:
-			primitive->quadratic_bezier.p1 = Point(primitive->quadratic_bezier.p1) + shift;
-			primitive->quadratic_bezier.p2 = Point(primitive->quadratic_bezier.p2) + shift;
-			primitive->quadratic_bezier.p3 = Point(primitive->quadratic_bezier.p3) + shift;
+		case SG_VECTOR_PATH_QUADRATIC_BEZIER:
+			description->quadratic_bezier.control = Point(description->quadratic_bezier.control) + shift;
+			description->quadratic_bezier.point = Point(description->quadratic_bezier.point) + shift;
 			break;
-		case SG_CUBIC_BEZIER:
-			primitive->cubic_bezier.p1 = Point(primitive->cubic_bezier.p1) + shift;
-			primitive->cubic_bezier.p2 = Point(primitive->cubic_bezier.p2) + shift;
-			primitive->cubic_bezier.p3 = Point(primitive->cubic_bezier.p3) + shift;
-			primitive->cubic_bezier.p4 = Point(primitive->cubic_bezier.p4) + shift;
+		case SG_VECTOR_PATH_CUBIC_BEZIER:
+			description->cubic_bezier.control[0] = Point(description->cubic_bezier.control[0]) + shift;
+			description->cubic_bezier.control[1] = Point(description->cubic_bezier.control[1]) + shift;
+			description->cubic_bezier.point = Point(description->cubic_bezier.point) + shift;
+			break;
+		case SG_VECTOR_PATH_CLOSE:
 			break;
 		}
 	}
 }
 
-void SvgFont::scale_icon(sg_vector_icon_t & icon, float scale){
-	u16 type;
-	int i;
-	for(i=0; i < icon.total; i++){
-		sg_vector_primitive_t * primitive = (sg_vector_primitive_t *)icon.primitives + i;
-		type = primitive->type & ~(SG_ENABLE_FLAG);
-		switch(type){
-		case SG_LINE:
-			primitive->line.p1 = Point(primitive->line.p1) * scale;
-			primitive->line.p2 = Point(primitive->line.p2) * scale;
+void SvgFont::scale_icon(sg_vector_path_icon_t & icon, float scale){
+	u32 i;
+	for(i=0; i < icon.count; i++){
+		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
+		switch(description->type){
+		case SG_VECTOR_PATH_MOVE:
+			description->move.point = Point(description->move.point) * scale;
 			break;
-		case SG_ARC:
-			primitive->arc.center = Point(primitive->arc.center) * scale;
-			primitive->arc.rx = rintf((float)primitive->arc.rx * scale);
-			primitive->arc.ry = rintf((float)primitive->arc.ry * scale);
+		case SG_VECTOR_PATH_LINE:
+			description->line.point = Point(description->line.point) * scale;
 			break;
-		case SG_POUR:
-			primitive->pour.center = Point(primitive->pour.center) * scale;
+		case SG_VECTOR_PATH_POUR:
+			description->pour.point = Point(description->pour.point) * scale;
 			break;
-		case SG_QUADRATIC_BEZIER:
-			primitive->quadratic_bezier.p1 = Point(primitive->quadratic_bezier.p1) * scale;
-			primitive->quadratic_bezier.p2 = Point(primitive->quadratic_bezier.p2) * scale;
-			primitive->quadratic_bezier.p3 = Point(primitive->quadratic_bezier.p3) * scale;
+		case SG_VECTOR_PATH_QUADRATIC_BEZIER:
+			description->quadratic_bezier.control = Point(description->quadratic_bezier.control) * scale;
+			description->quadratic_bezier.point = Point(description->quadratic_bezier.point) * scale;
 			break;
-		case SG_CUBIC_BEZIER:
-			primitive->cubic_bezier.p1 = Point(primitive->cubic_bezier.p1) * scale;
-			primitive->cubic_bezier.p2 = Point(primitive->cubic_bezier.p2) * scale;
-			primitive->cubic_bezier.p3 = Point(primitive->cubic_bezier.p3) * scale;
-			primitive->cubic_bezier.p4 = Point(primitive->cubic_bezier.p4) * scale;
+		case SG_VECTOR_PATH_CUBIC_BEZIER:
+			description->cubic_bezier.control[0] = Point(description->cubic_bezier.control[0]) * scale;
+			description->cubic_bezier.control[1] = Point(description->cubic_bezier.control[1]) * scale;
+			description->cubic_bezier.point = Point(description->cubic_bezier.point) * scale;
+			break;
+		case SG_VECTOR_PATH_CLOSE:
 			break;
 		}
 	}
@@ -309,13 +352,13 @@ int SvgFont::parse_svg_path(const char * d){
 				return -1;
 			}
 		} else {
-			printf("Invalid at %s\n", d+i);
+			printf("Invalid at -%s-\n", d+i);
 			return -1;
 		}
 
-	} while( (i < len) && (m_object < OBJECT_MAX) );
+	} while( (i < len) && (m_object < PATH_DESCRIPTION_MAX) );
 
-	if( m_object == OBJECT_MAX ){
+	if( m_object == PATH_DESCRIPTION_MAX ){
 		printf("Max Objects\n");
 		return -1;
 	}
@@ -420,7 +463,11 @@ int SvgFont::parse_path_moveto_absolute(const char * path){
 		return -1;
 	}
 	m_current_point = convert_svg_coord(values[0], values[1]);
-	m_start_point = m_current_point;
+	//m_start_point = m_current_point;
+
+	m_path_description_list[m_object] = Vector::get_path_move(m_current_point);
+	m_object++;
+
 
 	printf("Moveto Absolute (%0.1f,%0.1f) -> (%d,%d)\n",
 			values[0], values[1],
@@ -435,6 +482,10 @@ int SvgFont::parse_path_moveto_relative(const char * path){
 		return -1;
 	}
 	m_current_point += convert_svg_coord(values[0], values[1], false);
+
+	m_path_description_list[m_object] = Vector::get_path_move(m_current_point);
+	m_object++;
+
 	printf("Moveto Relative (%0.1f,%0.1f)\n", values[0], values[1]);
 	return seek_path_command(path);
 }
@@ -447,7 +498,7 @@ int SvgFont::parse_path_lineto_absolute(const char * path){
 	}
 
 	p = convert_svg_coord(values[0], values[1]);
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -463,7 +514,7 @@ int SvgFont::parse_path_lineto_relative(const char * path){
 	}
 
 	p = m_current_point + convert_svg_coord(values[0], values[1], false);
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -482,7 +533,7 @@ int SvgFont::parse_path_horizontal_lineto_absolute(const char * path){
 
 	p = convert_svg_coord(values[0], 0);
 	p.y = m_current_point.y();
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 
 	m_object++;
 	m_current_point = p;
@@ -504,7 +555,7 @@ int SvgFont::parse_path_horizontal_lineto_relative(const char * path){
 	p = convert_svg_coord(values[0], 0, false);
 	p.x += m_current_point.x();
 	p.y = m_current_point.y();
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -524,7 +575,7 @@ int SvgFont::parse_path_vertical_lineto_absolute(const char * path){
 
 	p = convert_svg_coord(0, values[0]);
 	p.x = m_current_point.x();
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -544,7 +595,7 @@ int SvgFont::parse_path_vertical_lineto_relative(const char * path){
 	p = convert_svg_coord(0, values[0], false);
 	p.x = m_current_point.x();
 	p.y += m_current_point.y();
-	m_objs[m_object] = Vector::line(m_current_point, p);
+	m_path_description_list[m_object] = Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -564,7 +615,7 @@ int SvgFont::parse_path_quadratic_bezier_absolute(const char * path){
 	p[0] = convert_svg_coord(values[0], values[1]);
 	p[1] = convert_svg_coord(values[2], values[3]);
 
-	m_objs[m_object] = Vector::quadratic_bezier(m_current_point, p[0], p[1]);
+	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 	m_control_point = p[0];
 	m_current_point = p[1];
@@ -587,7 +638,7 @@ int SvgFont::parse_path_quadratic_bezier_relative(const char * path){
 	p[0] = m_current_point + convert_svg_coord(values[0], values[1], false);
 	p[1] = m_current_point + convert_svg_coord(values[2], values[3], false);
 
-	m_objs[m_object] = Vector::quadratic_bezier(m_current_point, p[0], p[1]);
+	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
 	printf("Quadratic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
@@ -614,7 +665,7 @@ int SvgFont::parse_path_quadratic_bezier_short_absolute(const char * path){
 	p[0].set(2*m_current_point.x() - m_control_point.x(), 2*m_current_point.y() - m_control_point.y());
 	p[1] = convert_svg_coord(values[0], values[1]);
 
-	m_objs[m_object] = Vector::quadratic_bezier(m_current_point, p[0], p[1]);
+	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 	m_control_point = p[0];
 	m_current_point = p[1];
@@ -633,7 +684,7 @@ int SvgFont::parse_path_quadratic_bezier_short_relative(const char * path){
 	p[0].set(2*m_current_point.x() - m_control_point.x(), 2*m_current_point.y() - m_control_point.y());
 	p[1] = m_current_point + convert_svg_coord(values[0], values[1], false);
 
-	m_objs[m_object] = Vector::quadratic_bezier(m_current_point, p[0], p[1]);
+	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
 	printf("Quadratic Bezier Short Relative (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
@@ -660,7 +711,7 @@ int SvgFont::parse_path_cubic_bezier_absolute(const char * path){
 	p[1] = convert_svg_coord(values[2], values[3]);
 	p[2] = convert_svg_coord(values[4], values[5]);
 
-	m_objs[m_object] = Vector::cubic_bezier(m_current_point, p[0], p[1], p[2]);
+	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -686,7 +737,7 @@ int SvgFont::parse_path_cubic_bezier_relative(const char * path){
 	p[1] = m_current_point + convert_svg_coord(values[2], values[3]);
 	p[2] = m_current_point + convert_svg_coord(values[4], values[5]);
 
-	m_objs[m_object] = Vector::cubic_bezier(m_current_point, p[0], p[1], p[2]);
+	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -713,7 +764,7 @@ int SvgFont::parse_path_cubic_bezier_short_absolute(const char * path){
 	p[1] = convert_svg_coord(values[0], values[1]);
 	p[2] = convert_svg_coord(values[2], values[3]);
 
-	m_objs[m_object] = Vector::cubic_bezier(m_current_point, p[0], p[1], p[2]);
+	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -737,7 +788,7 @@ int SvgFont::parse_path_cubic_bezier_short_relative(const char * path){
 	p[1] = m_current_point + convert_svg_coord(values[0], values[1]);
 	p[2] = m_current_point + convert_svg_coord(values[2], values[3]);
 
-	m_objs[m_object] = Vector::cubic_bezier(m_current_point, p[0], p[1], p[2]);
+	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -750,11 +801,10 @@ int SvgFont::parse_path_cubic_bezier_short_relative(const char * path){
 	return seek_path_command(path);
 }
 
-
 int SvgFont::parse_close_path(const char * path){
 
 
-	m_objs[m_object] = Vector::line(m_current_point, m_start_point);
+	m_path_description_list[m_object] = Vector::get_path_close();
 	m_object++;
 
 	printf("Close Path\n");
@@ -762,6 +812,157 @@ int SvgFont::parse_close_path(const char * path){
 	//need to figure out where to put the fill
 
 	return seek_path_command(path); //no arguments, cursor doesn't advance
+}
+
+int SvgFont::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, sg_point_t * points, sg_size_t max_points){
+
+	Region region;
+	int pour_points = 0;
+
+	region = bitmap.get_viewable_region();
+
+	printf("Region is %d,%d %dx%d\n", region.x(), region.y(), region.width(), region.height());
+
+	sg_point_t point;
+	for(point.x = 0; point.x < fill_points.width(); point.x++){
+		for(point.y = 0; point.y < fill_points.height(); point.y++){
+			if( (fill_points.get_pixel(point) != 0) && (bitmap.get_pixel(point) == 0) ){
+				printf("Pour on %d,%d\n", point.x, point.y);
+				bitmap.draw_pour(point, region);
+				points[pour_points] = point;
+				pour_points++;
+				if( pour_points == max_points ){
+					return max_points;
+				}
+				//return 1;
+			}
+		}
+	}
+
+	return pour_points;
+
+}
+
+void SvgFont::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid){
+	fill_points.clear();
+	bool is_fill;
+	for(sg_int_t x = region.x(); x < region.width(); x+=grid){
+		for(sg_int_t y = 0; y < region.height(); y+=grid){
+			is_fill = is_fill_point(bitmap, sg_point(x,y), region);
+			if( is_fill ){
+				fill_points.draw_pixel(sg_point(x,y));
+			}
+		}
+	}
+}
+
+bool SvgFont::is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region){
+	int boundary_count;
+	sg_color_t color;
+	sg_point_t temp = point;
+
+	color = bitmap.get_pixel(point);
+	if( color != 0 ){
+		return false;
+	}
+
+	sg_size_t width;
+	sg_size_t height;
+	width = region.x() + region.width();
+	height = region.y() + region.height();
+
+	boundary_count = 0;
+
+	do {
+		while( (temp.x < width) && (bitmap.get_pixel(temp) == 0) ){
+			temp.x++;
+		}
+
+		if( temp.x < width ){
+			boundary_count++;
+			while( (temp.x < width) && (bitmap.get_pixel(temp) != 0) ){
+				temp.x++;
+			}
+
+			if( temp.x < width ){
+			}
+		}
+	} while( temp.x < width );
+
+	if ((boundary_count % 2) == 0){
+		return false;
+	}
+
+	temp = point;
+	boundary_count = 0;
+	do {
+		while( (temp.x >= region.x()) && (bitmap.get_pixel(temp) == 0) ){
+			temp.x--;
+		}
+
+		if( temp.x >= region.x() ){
+			boundary_count++;
+			while( (temp.x >= region.x()) && (bitmap.get_pixel(temp) != 0) ){
+				temp.x--;
+			}
+
+			if( temp.x >= region.x() ){
+			}
+		}
+	} while( temp.x >= region.x() );
+
+	if ((boundary_count % 2) == 0){
+		return false;
+	}
+
+	temp = point;
+	boundary_count = 0;
+	do {
+		while( (temp.y >= region.y()) && (bitmap.get_pixel(temp) == 0) ){
+			temp.y--;
+		}
+
+		if( temp.y >= region.y() ){
+			boundary_count++;
+			while( (temp.y >= region.y()) && (bitmap.get_pixel(temp) != 0) ){
+				temp.y--;
+			}
+
+			if( temp.y >= region.y() ){
+			}
+		}
+	} while( temp.y >= region.y() );
+
+	if ((boundary_count % 2) == 0){
+		return false;
+	}
+
+	return true;
+
+	temp = point;
+	boundary_count = 0;
+	do {
+		while( (temp.y < height) && (bitmap.get_pixel(temp) == 0) ){
+			temp.y++;
+		}
+
+		if( temp.y < height ){
+			boundary_count++;
+			while( (temp.y < height) && (bitmap.get_pixel(temp) != 0) ){
+				temp.y++;
+			}
+
+			if( temp.y < height ){
+			}
+		}
+	} while( temp.y < height );
+
+	if ((boundary_count % 2) == 0){
+		return false;
+	}
+
+	return true;
+
 }
 
 

@@ -1,22 +1,11 @@
-/*
- * BmpFont.cpp
- *
- *  Created on: Oct 19, 2017
- *      Author: tgil
- */
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
+
 
 #include "BmpFont.hpp"
 
-BmpFont::BmpFont() {
-	// TODO Auto-generated constructor stub
+BmpFont::BmpFont(){}
 
-}
-
-BmpFont::~BmpFont() {
-	// TODO Auto-generated destructor stub
-}
-
-int BmpFont::convert_directory(const char * dir_path){
+int BmpFont::convert_directory(const char * dir_path, bool overwrite, int verbose){
 	Dir dir;
 	Dir dir_size;
 	String path;
@@ -54,11 +43,11 @@ int BmpFont::convert_directory(const char * dir_path){
 					font_bmp.c_str(),
 					font_sbf.c_str());
 
-			if( access(font_sbf.c_str(), R_OK ) == 0 ){
+			if( (access(font_sbf.c_str(), R_OK ) == 0) && !overwrite ){
 				printf("already exists\n");
 			} else {
 				printf("converting\n");
-				BmpFont::gen_fonts(font, font_bmp, font_sbf, Font::charset());
+				BmpFont::gen_fonts(font, font_bmp, font_sbf, Font::charset(), verbose);
 			}
 		}
 	}
@@ -67,7 +56,7 @@ int BmpFont::convert_directory(const char * dir_path){
 	return 0;
 }
 
-int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const char * font_file, const char * charset){
+int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const char * font_file, const char * charset, int verbose){
 	Bmp bmp(bitmap_file);
 	File def;
 	File font; //create a new font with this file
@@ -81,9 +70,15 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 	sg_font_header_t header;
 	sg_font_char_t character;
 
-	unsigned int i;
 	int offset;
+	unsigned int i;
 	int ret;
+
+	u32 current_canvas_idx;
+	Region canvas_region;
+	u32 canvas_size;
+	u32 canvas_offset;
+	Bitmap canvas;
 
 	if( bmp.fileno() < 0 ){
 		printf("Failed to open bitmap file\n");
@@ -113,7 +108,16 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 	header.max_word_width = Bitmap::calc_word_width(max_width);
 	header.max_height = max_height;
 	header.version = SG_VERSION;
+	header.bits_per_pixel = Bitmap::bits_per_pixel();
 
+	header.canvas_width = header.max_word_width*32/canvas.bits_per_pixel()*3; //make the canvas eight times wider for efficiency
+	header.canvas_height = header.max_height*3;
+	if( canvas.alloc(header.canvas_width, header.canvas_height) < 0 ){
+		printf("NO CANVAS! %d,%d\n", header.canvas_width, header.max_height);
+		exit(1);
+	}
+
+	canvas_size = canvas.calc_size();
 
 	if( charset != 0 ){
 		header.num_chars = Font::CHARSET_SIZE;
@@ -122,7 +126,7 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 		header.num_chars = 0;
 		def.seek(0);
 		while( scan_char(def, ch) == 0 ){
-			printf("Scanned id %d\n", ch.id);
+			if( verbose > 0 ){ printf("Scanned id %d\n", ch.id); }
 			if( ch.id > 255 ){
 				header.num_chars++;
 			}
@@ -133,10 +137,9 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 
 	header.size = sizeof(header) + header.num_chars * sizeof(character) + sizeof(sg_font_kerning_pair_t) * header.kerning_pairs;
 
+
 	printf("Header Chars: %d Word Width: %d Height: %d\n",
 			header.num_chars, header.max_word_width, header.max_height);
-
-	printf("Header size is %ld\n", header.size);
 
 	font.write(&header, sizeof(header));
 
@@ -144,7 +147,7 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 	def.seek(0);
 	while(get_kerning(def, kerning) == 0 ){
 		//write kerning to file
-		printf("Kerning %d -> %d = %d\n", kerning.first, kerning.second, kerning.amount);
+		if( verbose > 0 ){ printf("Kerning %d -> %d = %d\n", kerning.first, kerning.second, kerning.amount); }
 		sg_font_kerning_pair_t pair;
 		pair.first = kerning.first;
 		pair.second = kerning.second;
@@ -152,7 +155,8 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 		font.write(&pair, sizeof(pair));
 	}
 
-	offset = header.size;
+	current_canvas_idx = 0;
+	canvas.clear();
 
 	for(i=0; i < header.num_chars; i++){
 		if( charset != 0 ){
@@ -164,12 +168,14 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 				ch.id = 256;
 				scan_char(def, ch);
 			} while( ch.id <= 255 );
+
 			if( ch.id == 256 ){
 				ret = -1;
 			} else {
 				ret = 0;
 			}
 		}
+
 
 		if( ret < 0 ){
 			printf("Failed to find character\n");
@@ -178,31 +184,52 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 				perror("failed to write char entry");
 			}
 		} else {
+
+			do {
+				canvas_region = save_region_on_canvas(canvas, sg_dim(ch.width, ch.height), 4);
+				if (canvas_region.x() < 0 ){
+					if( verbose > 1 ){
+						printf("\n");
+						canvas.show();
+					}
+					//save the canvas
+					canvas.clear();
+					current_canvas_idx++;
+				}
+			} while( canvas_region.x() < 0 );
+
 			character.id = ch.id;
-			character.resd = 0;
+			//character.resd = 0;
 			character.height = ch.height;
 			character.width = ch.width;
-			character.offset = offset;
+			character.canvas_idx = current_canvas_idx;
+			character.canvas_x = canvas_region.x();
+			character.canvas_y = canvas_region.y();
 			character.yoffset = ch.yoffset;
 			character.xoffset = ch.xoffset;
 			character.xadvance = ch.xadvance;
-			printf("Char %d is %d x %d at %d advance %d index:%d\n",
-					ch.id,
-					character.width,
-					character.height,
-					offset,
-					character.xadvance,
-					font.seek(0, File::CURRENT));
+			if( verbose > 0 ){
+				printf("Char %d is %d x %d at %ld advance %d offset:%d %d...",
+						ch.id,
+						character.width,
+						character.height,
+						current_canvas_idx,
+						character.xadvance,
+						ch.xoffset, ch.yoffset);
+			}
+
 			if( font.write(&character, sizeof(character)) != sizeof(character) ){
 				perror("failed to write char entry");
 			}
-			offset += Bitmap::calc_size(character.width, character.height);
 		}
 
+		printf("\n");
 	}
 
 	def.seek(0);
-	Bitmap bitmap(max_width, max_height);
+
+	current_canvas_idx = 0;
+	canvas.clear();
 
 	offset = sizeof(sg_font_header_t) + sizeof(sg_font_kerning_pair_t)*header.kerning_pairs;
 	for(i=0; i < header.num_chars; i++){
@@ -227,17 +254,41 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 			printf("Failed to find load char\n");
 		} else {
 			//load the bitmap information and write it to the font file
-			printf("Load Bitmap at %d, %d -- %d x %d for %d write to offset %d\n",
-					ch.x, ch.y, ch.width, ch.height, ch.id, character.offset);
+			if( verbose > 0 ){
+				printf("Load Bitmap at %d, %d -- %d x %d for %d write to offset %d %d,%d...",
+						ch.x, ch.y, ch.width, ch.height, ch.id, character.canvas_idx, character.canvas_x, character.canvas_y);
+			}
 
-			Bitmap b((sg_bmap_data_t*)bitmap.data(), ch.width, ch.height);
-			get_bitmap(bmp, ch, &b);
-			b.show();
+			if( current_canvas_idx != character.canvas_idx ){
+				//save the canvas to the file
+				canvas_offset = header.size + current_canvas_idx*canvas_size;
+				printf("Write canvas to %ld\n", canvas_offset);
+				font.write(canvas_offset, canvas.data(), canvas_size);
+				current_canvas_idx = character.canvas_idx;
+				if( verbose > 1 ){
+					printf("\n");
+					canvas.show();
+				}
+				canvas.clear();
+			}
 
-			font.write(character.offset, b.data(), b.calc_size());
+			get_bitmap(bmp, ch, canvas, sg_point(character.canvas_x, character.canvas_y));
 		}
+		printf("\n");
 	}
 
+	if( verbose > 1 ){
+		printf("\n");
+		canvas.show();
+	}
+
+
+	//save the final canvas
+	canvas_offset = header.size + character.canvas_idx*canvas_size;
+	printf("Write canvas to %ld\n", canvas_offset);
+	font.write(canvas_offset, canvas.data(), canvas_size);
+
+	printf("Total Font file size: %d\n", font.seek(0, File::CURRENT));
 
 	font.close();
 	def.close();
@@ -281,7 +332,7 @@ int BmpFont::load_kerning(bmpfont_kerning_t & c, const Token & t){
 	return 0;
 }
 
-int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap * master){
+int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc){
 	unsigned int i, j;
 	int x = c.x;
 	int y = c.y;
@@ -291,8 +342,6 @@ int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap * master){
 	unsigned int height = c.height;
 	int avg;
 	uint8_t pixel[3];
-
-	master->clear();
 
 	for(j=0; j < height; j++){
 		bmp.seek_row(y + j);
@@ -307,7 +356,7 @@ int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap * master){
 				//printf("  ");
 			} else {
 				//printf("8");
-				master->draw_pixel(sg_point(i,j));
+				canvas.draw_pixel(sg_point(i+loc.x,j+loc.y));
 			}
 		}
 
@@ -508,5 +557,41 @@ int BmpFont::scan_char(File & def, bmpfont_char_t & d){
 		}
 	}
 	return -1;
+}
+
+Region BmpFont::save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid){
+	sg_point_t point;
+	sg_region_t region;
+	bool is_free = true;
+
+	region.dim = dimensions;
+
+	for( region.point.x = 0; region.point.x <= canvas.width() - dimensions.width(); region.point.x++){
+		for( region.point.y = 0; region.point.y <= canvas.height() - dimensions.height(); region.point.y++){
+			is_free = true;
+			for(point.y = region.point.y; point.y < region.point.y + dimensions.height(); point.y++){
+				for(point.x = region.point.x; point.x < region.point.x + dimensions.width(); point.x++){
+					if( canvas.get_pixel(point) != 0 ){
+						is_free = false;
+						break;
+					}
+				}
+				if( is_free == false ){
+					break;
+				}
+			}
+
+			if( is_free ){
+				canvas.set_pen(Pen(1,1));
+				canvas.draw_rectangle(region);
+				return region;
+			}
+		}
+	}
+
+	region.point.x = -1;
+	region.point.y = -1;
+	return region;
+
 }
 

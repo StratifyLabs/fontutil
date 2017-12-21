@@ -1,3 +1,4 @@
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
 
 #include <sapi/fmt.hpp>
 #include <sapi/hal.hpp>
@@ -9,9 +10,13 @@
 #include "BmpFont.hpp"
 #include "SvgFont.hpp"
 
+void show_usage(const Cli & cli);
+
 
 int main(int argc, char * argv[]){
 	String path;
+	bool overwrite;
+	int verbose;
 
 	Cli cli(argc, argv);
 	cli.set_publisher("Stratify Labs, Inc");
@@ -43,13 +48,29 @@ int main(int argc, char * argv[]){
 		path = "/home";
 	}
 
+	if( cli.is_option("-overwrite") ){
+		overwrite = true;
+	} else {
+		overwrite = false;
+	}
+
+	if( cli.is_option("-verbose") ){
+		verbose = cli.get_option_value("-verbose");
+	} else {
+		verbose = 0;
+	}
+
 	if( cli.is_option("-bmp") ){
-		BmpFont::convert_directory(path.c_str());
+		BmpFont::convert_directory(path.c_str(), overwrite, verbose);
 	} else if( cli.is_option("-svg") ){
 		SvgFont svg_font;
 		svg_font.convert_file(path.c_str());
 	}
 
 	return 0;
+}
+
+void show_usage(const Cli & cli){
+
 }
 

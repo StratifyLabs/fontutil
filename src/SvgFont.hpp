@@ -1,9 +1,5 @@
-/*
- * Svg.hpp
- *
- *  Created on: Nov 25, 2017
- *      Author: tgil
- */
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
+
 
 #ifndef SVGFONT_HPP_
 #define SVGFONT_HPP_
@@ -29,9 +25,6 @@ private:
 		LINETO_STATE,
 		TOTAL_STATE
 	};
-
-
-
 
 	int parse_bounds(const char * value);
 
@@ -59,24 +52,26 @@ private:
 
 	Point convert_svg_coord(float x, float y, bool is_absolute = true);
 
-	void analyze_icon(Bitmap & bitmap, sg_vector_icon_t & icon, const VectorMap & map, bool recheck);
-	void shift_icon(sg_vector_icon_t & icon, Point shift);
-	void scale_icon(sg_vector_icon_t & icon, float scale);
+	void analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck);
+	void shift_icon(sg_vector_path_icon_t & icon, Point shift);
+	void scale_icon(sg_vector_path_icon_t & icon, float scale);
 
 	enum {
-		OBJECT_MAX = 192
+		PATH_DESCRIPTION_MAX = 256,
+		MAX_FILL_POINTS = 32
 	};
 
 	int m_state;
-	Point m_start_point;
 	Point m_current_point;
 	Point m_control_point;
 	sg_region_t m_bounds;
 	float m_scale;
 	int m_object;
-	sg_vector_primitive_t m_objs[OBJECT_MAX];
+	sg_vector_path_description_t m_path_description_list[PATH_DESCRIPTION_MAX];
 
-
+	static int calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, sg_point_t * points, sg_size_t max_points);
+	static void find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid);
+	static bool is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region);
 
 
 };

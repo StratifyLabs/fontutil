@@ -1,9 +1,5 @@
-/*
- * BmpFont.hpp
- *
- *  Created on: Oct 19, 2017
- *      Author: tgil
- */
+/*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
+
 
 #ifndef BMPFONT_HPP_
 #define BMPFONT_HPP_
@@ -17,7 +13,6 @@
 class BmpFont {
 public:
 	BmpFont();
-	virtual ~BmpFont();
 
 	typedef struct {
 		u16 num_chars;
@@ -44,12 +39,13 @@ public:
 		s16 amount;
 	} bmpfont_kerning_t;
 
-	static int convert_directory(const char * dir_path);
+	static int convert_directory(const char * dir_path, bool overwrite = false, int verbose = 1);
 
 	static int gen_fonts(const char * def_file,
 			const char * bitmap_file,
 			const char * font_file,
-			const char * charset = 0);
+			const char * charset = 0,
+			int verbose = 0);
 
 	static int load_char(bmpfont_char_t & c, const Token & t);
 	static int load_kerning(bmpfont_kerning_t & c, const Token & t);
@@ -61,7 +57,9 @@ public:
 	static int get_char(File & def, bmpfont_char_t & d, uint8_t ascii);
 	static int get_kerning(File & def, bmpfont_kerning_t & k);
 	static int scan_char(File & def, bmpfont_char_t & d);
-	static int get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap * master);
+	static int get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc);
+
+	static Region save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid);
 
 
 

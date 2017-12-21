@@ -11,7 +11,7 @@
     "name": "fontutil",
     "permissions": "public",
     "publisher": "Stratify Labs, Inc",
-    "ram": 8192,
+    "ram": 0,
     "tags": "demo",
     "type": "StratifyApp",
     "version": "1.4"

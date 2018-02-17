@@ -1,0 +1,7 @@
+{
+    "LocalBuild": "build_release_armv7em_fpu",
+    "LocalInstallPath": "/app/.install",
+    "LocalIsRam": false,
+    "LocalIsStartup": false,
+    "LocalProjectId": "-Kms00U6xlEby6A9NArS"
+}

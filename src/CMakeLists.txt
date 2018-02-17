@@ -1,0 +1,10 @@
+
+set(SOURCES
+	${SOURCES_PREFIX}/main.cpp
+	${SOURCES_PREFIX}/SvgFont.cpp
+	${SOURCES_PREFIX}/SvgFont.hpp
+	${SOURCES_PREFIX}/BmpFont.cpp
+	${SOURCES_PREFIX}/BmpFont.hpp
+	${SOURCES_PREFIX}/Util.cpp
+	${SOURCES_PREFIX}/Util.hpp
+	PARENT_SCOPE)

@@ -33,10 +33,10 @@ SvgFont::SvgFont() {
 
 
 int SvgFont::convert_file(const char * path){
-	Son<4> font;
+	Son font;
 	String value(2048);
 	String access;
-	DisplayDev display;
+	DisplayDevice display;
 	sg_point_t pour_points[MAX_FILL_POINTS];
 	int j;
 	int i;

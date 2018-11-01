@@ -3,13 +3,13 @@
 
 #include "Util.hpp"
 
-void Util::clean_path(const char * path, const char * suffix){
+void Util::clean_path(const ConstString & path, const ConstString & suffix){
 	Dir d;
 	const char * entry;
 	String str;
 
 	if( d.open(path) < 0 ){
-		printf("Failed to open path: '%s'\n", path);
+		printf("Failed to open path: '%s'\n", path.str());
 	}
 
 	while( (entry = d.read()) != 0 ){
@@ -17,16 +17,16 @@ void Util::clean_path(const char * path, const char * suffix){
 		if( str == "sbf" ){
 			str.clear();
 			str << path << "/" << entry;
-			printf("Removing file: %s\n", str.c_str());
+			printf("Removing file: %s\n", str.str());
 			File::remove(str);
 		}
 	}
 }
 
-void Util::show_file_font(const char * path){
-	FontFile ff;
+void Util::show_file_font(const ConstString & path){
+	FileFont ff;
 
-	printf("Show font: %s\n", path);
+	printf("Show font: %s\n", path.str());
 
 	if( ff.set_file(path) < 0 ){
 		printf("Failed to open font: '%s'\n", path);

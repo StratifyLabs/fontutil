@@ -7,8 +7,8 @@
 #include <sapi/sgfx.hpp>
 
 #include "Util.hpp"
-#include "BmpFont.hpp"
-#include "SvgFont.hpp"
+#include "BmpFontManager.hpp"
+#include "SvgFontManager.hpp"
 
 void show_usage(const Cli & cli);
 
@@ -61,9 +61,9 @@ int main(int argc, char * argv[]){
 	}
 
 	if( cli.is_option("-bmp") ){
-		BmpFont::convert_directory(path.c_str(), overwrite, verbose);
+		BmpFontManager::convert_directory(path.c_str(), overwrite, verbose);
 	} else if( cli.is_option("-svg") ){
-		SvgFont svg_font;
+		SvgFontManager svg_font;
 		svg_font.convert_file(path.c_str());
 	}
 

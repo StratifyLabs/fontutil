@@ -1,11 +1,11 @@
 /*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
 
 
-#include "BmpFont.hpp"
+#include "BmpFontManager.hpp"
 
-BmpFont::BmpFont(){}
+BmpFontManager::BmpFontManager(){}
 
-int BmpFont::convert_directory(const char * dir_path, bool overwrite, int verbose){
+int BmpFontManager::convert_directory(const char * dir_path, bool overwrite, int verbose){
 	Dir dir;
 	Dir dir_size;
 	String path;
@@ -47,7 +47,7 @@ int BmpFont::convert_directory(const char * dir_path, bool overwrite, int verbos
 				printf("already exists\n");
 			} else {
 				printf("converting\n");
-				BmpFont::gen_fonts(font, font_bmp, font_sbf, Font::charset(), verbose);
+				BmpFontManager::gen_fonts(font, font_bmp, font_sbf, Font::charset(), verbose);
 			}
 		}
 	}
@@ -56,7 +56,7 @@ int BmpFont::convert_directory(const char * dir_path, bool overwrite, int verbos
 	return 0;
 }
 
-int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const char * font_file, const char * charset, int verbose){
+int BmpFontManager::gen_fonts(const ConstString & def_file, const ConstString & bitmap_file, const ConstString & font_file, const ConstString & charset, int verbose){
 	Bmp bmp(bitmap_file);
 	File def;
 	File font; //create a new font with this file
@@ -298,7 +298,7 @@ int BmpFont::gen_fonts(const char * def_file, const char * bitmap_file, const ch
 }
 
 
-int BmpFont::load_info(bmpfont_hdr_t & hdr, const Token & t){
+int BmpFontManager::load_info(bmpfont_hdr_t & hdr, const Token & t){
 	String str;
 	int val;
 	unsigned int i;
@@ -307,14 +307,14 @@ int BmpFont::load_info(bmpfont_hdr_t & hdr, const Token & t){
 		Token m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
-			val = atoi(m.at(1));
+			val = m.at(1).atoi();
 			if( str == "size" ){ hdr.size = val; }
 		}
 	}
 	return 0;
 }
 
-int BmpFont::load_kerning(bmpfont_kerning_t & c, const Token & t){
+int BmpFontManager::load_kerning(bmpfont_kerning_t & c, const Token & t){
 	String str;
 	int val;
 	unsigned int i;
@@ -323,7 +323,7 @@ int BmpFont::load_kerning(bmpfont_kerning_t & c, const Token & t){
 		Token m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
-			val = atoi(m.at(1));
+			val = m.at(1).atoi();
 			if( str == "first" ){ c.first = val; }
 			else if ( str == "second" ){ c.second = val; }
 			else if ( str == "amount" ){ c.amount = val; }
@@ -332,7 +332,7 @@ int BmpFont::load_kerning(bmpfont_kerning_t & c, const Token & t){
 	return 0;
 }
 
-int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc){
+int BmpFontManager::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc){
 	unsigned int i, j;
 	int x = c.x;
 	int y = c.y;
@@ -366,7 +366,7 @@ int BmpFont::get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t
 	return 0;
 }
 
-void BmpFont::show_char(Bmp & bmp, bmpfont_char_t c){
+void BmpFontManager::show_char(Bmp & bmp, bmpfont_char_t c){
 	unsigned int i, j;
 	int x = c.x;
 	int y = c.y;
@@ -398,7 +398,7 @@ void BmpFont::show_char(Bmp & bmp, bmpfont_char_t c){
 	printf("\n");
 }
 
-int BmpFont::load_char(bmpfont_char_t & c, const Token & t){
+int BmpFontManager::load_char(bmpfont_char_t & c, const Token & t){
 	String str;
 	int val;
 	unsigned int i;
@@ -407,7 +407,7 @@ int BmpFont::load_char(bmpfont_char_t & c, const Token & t){
 		Token m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
-			val = atoi(m.at(1));
+			val = m.at(1).atoi();
 			if( str == "id" ){ c.id = val; }
 			else if ( str == "x" ){ c.x = val; }
 			else if ( str == "y" ){ c.y = val; }
@@ -423,7 +423,7 @@ int BmpFont::load_char(bmpfont_char_t & c, const Token & t){
 	return 0;
 }
 
-int BmpFont::get_max(File & def, int & w, int &h){
+int BmpFontManager::get_max(File & def, int & w, int &h){
 	def.seek(0);
 	String str;
 	String strm;
@@ -459,7 +459,7 @@ int BmpFont::get_max(File & def, int & w, int &h){
 	return 0;
 }
 
-int BmpFont::get_kerning(File & def, bmpfont_kerning_t & k){
+int BmpFontManager::get_kerning(File & def, bmpfont_kerning_t & k){
 	String str;
 	String strm;
 
@@ -481,7 +481,7 @@ int BmpFont::get_kerning(File & def, bmpfont_kerning_t & k){
 	return -1;
 }
 
-int BmpFont::get_char(File & def, bmpfont_char_t & d, uint8_t ascii){
+int BmpFontManager::get_char(File & def, bmpfont_char_t & d, uint8_t ascii){
 	def.seek(0);
 	String str;
 	String strm;
@@ -509,7 +509,7 @@ int BmpFont::get_char(File & def, bmpfont_char_t & d, uint8_t ascii){
 	return -1;
 }
 
-int BmpFont::get_kerning_count(File & def){
+int BmpFontManager::get_kerning_count(File & def){
 	def.seek(0);
 	String str;
 	String strm;
@@ -524,7 +524,7 @@ int BmpFont::get_kerning_count(File & def){
 
 			if( strm == "kernings" ){
 				if( t.size() > 1 ){
-					ret = atoi(t.at(2));
+					ret = t.at(2).atoi();
 					return ret;
 				}
 			}
@@ -536,7 +536,7 @@ int BmpFont::get_kerning_count(File & def){
 }
 
 
-int BmpFont::scan_char(File & def, bmpfont_char_t & d){
+int BmpFontManager::scan_char(File & def, bmpfont_char_t & d){
 	String str;
 	String strm;
 
@@ -559,7 +559,7 @@ int BmpFont::scan_char(File & def, bmpfont_char_t & d){
 	return -1;
 }
 
-Region BmpFont::save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid){
+Region BmpFontManager::save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid){
 	sg_point_t point;
 	sg_region_t region;
 	bool is_free = true;

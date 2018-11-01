@@ -1,8 +1,8 @@
 /*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
 
 
-#ifndef BMPFONT_HPP_
-#define BMPFONT_HPP_
+#ifndef BMPFONTMANAGER_HPP_
+#define BMPFONTMANAGER_HPP_
 
 #include <sapi/var.hpp>
 #include <sapi/sys.hpp>
@@ -10,9 +10,9 @@
 #include <sapi/sgfx.hpp>
 
 
-class BmpFont {
+class BmpFontManager {
 public:
-	BmpFont();
+	BmpFontManager();
 
 	typedef struct {
 		u16 num_chars;
@@ -41,10 +41,10 @@ public:
 
 	static int convert_directory(const char * dir_path, bool overwrite = false, int verbose = 1);
 
-	static int gen_fonts(const char * def_file,
-			const char * bitmap_file,
-			const char * font_file,
-			const char * charset = 0,
+	static int gen_fonts(const ConstString & def_file,
+			const ConstString & bitmap_file,
+			const ConstString & font_file,
+			const ConstString & charset = "",
 			int verbose = 0);
 
 	static int load_char(bmpfont_char_t & c, const Token & t);
@@ -65,4 +65,4 @@ public:
 
 };
 
-#endif /* BMPFONT_HPP_ */
+#endif /* BMPFONTMANAGER_HPP_ */

@@ -10,12 +10,10 @@
 
 class Util {
 public:
-
-
-	static void show_file_font(const char * path);
+	static void show_file_font(const ConstString & path);
 	static void show_font(Font & f);
 	static void show_system_font(int idx);
-	static void clean_path(const char * path, const char * suffix);
+	static void clean_path(const ConstString & path, const ConstString & suffix);
 
 };
 

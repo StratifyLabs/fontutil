@@ -6,7 +6,7 @@
 #include <sapi/var.hpp>
 #include <sapi/sys.hpp>
 #include <sapi/hal.hpp>
-#include "SvgFont.hpp"
+#include "SvgFontManager.hpp"
 
 void sg_point_unmap(sg_point_t * d, const sg_vector_map_t * m){
 	sg_api()->point_rotate(d, (SG_TRIG_POINTS - m->rotation) % SG_TRIG_POINTS);
@@ -25,34 +25,35 @@ void sg_point_unmap(sg_point_t * d, const sg_vector_map_t * m){
 
 }
 
-SvgFont::SvgFont() {
+SvgFontManager::SvgFontManager() {
 	// TODO Auto-generated constructor stub
 	m_scale = 0.0f;
 	m_object = 0;
 }
 
 
-int SvgFont::convert_file(const char * path){
+int SvgFontManager::convert_file(const char * path){
 	Son font;
-	String value(2048);
+	String value;
+	value.set_size(2048);
 	String access;
 	DisplayDevice display;
 	sg_point_t pour_points[MAX_FILL_POINTS];
 	int j;
 	int i;
-	int ret;
 	int num_fill_points;
 
 
 	if( font.open_read(path) < 0 ){ return -1; }
 
-	if( font.read_str("glyphs[0].attrs.bbox", value) >= 0 ){
+	value = font.read_string("glyphs[0].attrs.bbox");
+	if( value.is_empty() == false ){
 		parse_bounds(value.c_str());
 		printf("Bounds: %d,%d %dx%d\n", m_bounds.point.x, m_bounds.point.y, m_bounds.dim.width, m_bounds.dim.height);
 	}
 
 
-	display.init("/dev/display0");
+	display.initialize("/dev/display0");
 	display.set_pen(Pen(1,1));
 	VectorMap map(display);
 	Bitmap fill(display.dim());
@@ -67,15 +68,17 @@ int SvgFont::convert_file(const char * path){
 		//d is the path
 		printf("Any errors: %d\n", font.get_error());
 		access.sprintf("glyphs[%d].attrs.glyphName", j);
-		if( (ret = font.read_str(access, value)) > 0 ){
-			printf("Glyph Name: %d:%s\n", ret, value.c_str());
+		value = font.read_string(access);
+		if( value.is_empty() == false ){
+			printf("Glyph Name: %s\n", value.c_str());
 		} else {
 			printf("SOn error %d\n", font.get_error());
 			exit(1);
 		}
 
 		access.sprintf("glyphs[%d].attrs.d", j);
-		if( font.read_str(access, value) >= 0 ){
+		value = font.read_string(access);
+		if( value.is_empty() == false ){
 			printf("Read value:%s\n", value.c_str());
 			if( parse_svg_path(value.c_str()) < 0 ){
 				return -1;
@@ -102,7 +105,7 @@ int SvgFont::convert_file(const char * path){
 
 		map.set_rotation(0);
 
-		Vector::draw_path(display, vector_path, map);
+		sgfx::Vector::draw_path(display, vector_path, map);
 
 		display.refresh();
 		display.wait(1000);
@@ -126,7 +129,7 @@ int SvgFont::convert_file(const char * path){
 				pour_point = pour_points[i];
 				sg_point_unmap(&pour_point, map);
 				if( m_object < PATH_DESCRIPTION_MAX ){
-					m_path_description_list[m_object] = Vector::get_path_pour(pour_point);
+					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
 					m_object++;
 				} else {
 					printf("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST\n");
@@ -145,7 +148,7 @@ int SvgFont::convert_file(const char * path){
 
 		Timer t;
 		t.start();
-		Vector::draw_path(display, vector_path, map);
+		sgfx::Vector::draw_path(display, vector_path, map);
 		t.stop();
 		printf("Draw time is %ld\n", t.usec());
 #endif
@@ -160,8 +163,8 @@ int SvgFont::convert_file(const char * path){
 
 }
 
-void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck){
-	Region region = Vector::find_active_region(bitmap);
+void SvgFontManager::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck){
+	Region region = sgfx::Vector::find_active_region(bitmap);
 	Region target;
 	sg_size_t width = bitmap.width() - bitmap.margin_left() - bitmap.margin_right();
 	sg_point_t map_shift;
@@ -189,7 +192,7 @@ void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, cons
 
 		bitmap.clear();
 
-		Vector::draw_path(bitmap, vector_path, map);
+		sgfx::Vector::draw_path(bitmap, vector_path, map);
 
 		bitmap.refresh();
 
@@ -201,7 +204,7 @@ void SvgFont::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, cons
 	//bitmap.draw_rectangle(region.point(), region.dim());
 }
 
-void SvgFont::shift_icon(sg_vector_path_icon_t & icon, Point shift){
+void SvgFontManager::shift_icon(sg_vector_path_icon_t & icon, Point shift){
 	u32 i;
 	for(i=0; i < icon.count; i++){
 		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
@@ -230,7 +233,7 @@ void SvgFont::shift_icon(sg_vector_path_icon_t & icon, Point shift){
 	}
 }
 
-void SvgFont::scale_icon(sg_vector_path_icon_t & icon, float scale){
+void SvgFontManager::scale_icon(sg_vector_path_icon_t & icon, float scale){
 	u32 i;
 	for(i=0; i < icon.count; i++){
 		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
@@ -261,7 +264,7 @@ void SvgFont::scale_icon(sg_vector_path_icon_t & icon, float scale){
 
 
 
-int SvgFont::parse_svg_path(const char * d){
+int SvgFontManager::parse_svg_path(const char * d){
 	int len = strlen(d);
 	int i;
 	int ret;
@@ -367,7 +370,7 @@ int SvgFont::parse_svg_path(const char * d){
 
 }
 
-bool SvgFont::is_command_char(char c){
+bool SvgFontManager::is_command_char(char c){
 	int i;
 	int len = strlen(path_commands());
 	for(i=0; i < len; i++){
@@ -378,7 +381,7 @@ bool SvgFont::is_command_char(char c){
 	return false;
 }
 
-Point SvgFont::convert_svg_coord(float x, float y, bool is_absolute){
+Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
 	float temp_x;
 	float temp_y;
 	sg_point_t point;
@@ -403,7 +406,7 @@ Point SvgFont::convert_svg_coord(float x, float y, bool is_absolute){
 	return point;
 }
 
-int SvgFont::seek_path_command(const char * path){
+int SvgFontManager::seek_path_command(const char * path){
 	int i = 0;
 	int len = strlen(path);
 	while( (is_command_char(path[i]) == false) && (i < len) ){
@@ -412,7 +415,7 @@ int SvgFont::seek_path_command(const char * path){
 	return i;
 }
 
-int SvgFont::parse_bounds(const char * value){
+int SvgFontManager::parse_bounds(const char * value){
 	float values[4];
 	float scale_factor;
 
@@ -440,7 +443,7 @@ int SvgFont::parse_bounds(const char * value){
 	return 0;
 }
 
-int SvgFont::parse_number_arguments(const char * path, float * dest, u32 n){
+int SvgFontManager::parse_number_arguments(const char * path, float * dest, u32 n){
 	u32 i;
 	Token arguments;
 	arguments.assign(path);
@@ -448,7 +451,7 @@ int SvgFont::parse_number_arguments(const char * path, float * dest, u32 n){
 
 	for(i=0; i < n; i++){
 		if( i < arguments.size() ){
-			dest[i] = atoff(arguments.at(i));
+			dest[i] = arguments.at(i).atoff();
 		} else {
 			return i;
 		}
@@ -457,7 +460,7 @@ int SvgFont::parse_number_arguments(const char * path, float * dest, u32 n){
 }
 
 
-int SvgFont::parse_path_moveto_absolute(const char * path){
+int SvgFontManager::parse_path_moveto_absolute(const char * path){
 	float values[2];
 	if( parse_number_arguments(path, values, 2) != 2 ){
 		return -1;
@@ -465,7 +468,7 @@ int SvgFont::parse_path_moveto_absolute(const char * path){
 	m_current_point = convert_svg_coord(values[0], values[1]);
 	//m_start_point = m_current_point;
 
-	m_path_description_list[m_object] = Vector::get_path_move(m_current_point);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_move(m_current_point);
 	m_object++;
 
 
@@ -476,21 +479,21 @@ int SvgFont::parse_path_moveto_absolute(const char * path){
 }
 
 
-int SvgFont::parse_path_moveto_relative(const char * path){
+int SvgFontManager::parse_path_moveto_relative(const char * path){
 	float values[2];
 	if( parse_number_arguments(path, values, 2) != 2 ){
 		return -1;
 	}
 	m_current_point += convert_svg_coord(values[0], values[1], false);
 
-	m_path_description_list[m_object] = Vector::get_path_move(m_current_point);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_move(m_current_point);
 	m_object++;
 
 	printf("Moveto Relative (%0.1f,%0.1f)\n", values[0], values[1]);
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_lineto_absolute(const char * path){
+int SvgFontManager::parse_path_lineto_absolute(const char * path){
 	float values[2];
 	Point p;
 	if( parse_number_arguments(path, values, 2) != 2 ){
@@ -498,7 +501,7 @@ int SvgFont::parse_path_lineto_absolute(const char * path){
 	}
 
 	p = convert_svg_coord(values[0], values[1]);
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -506,7 +509,7 @@ int SvgFont::parse_path_lineto_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_lineto_relative(const char * path){
+int SvgFontManager::parse_path_lineto_relative(const char * path){
 	float values[2];
 	Point p;
 	if( parse_number_arguments(path, values, 2) != 2 ){
@@ -514,7 +517,7 @@ int SvgFont::parse_path_lineto_relative(const char * path){
 	}
 
 	p = m_current_point + convert_svg_coord(values[0], values[1], false);
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -524,7 +527,7 @@ int SvgFont::parse_path_lineto_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_horizontal_lineto_absolute(const char * path){
+int SvgFontManager::parse_path_horizontal_lineto_absolute(const char * path){
 	float values[1];
 	sg_point_t p;
 	if( parse_number_arguments(path, values, 1) != 1 ){
@@ -533,7 +536,7 @@ int SvgFont::parse_path_horizontal_lineto_absolute(const char * path){
 
 	p = convert_svg_coord(values[0], 0);
 	p.y = m_current_point.y();
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 
 	m_object++;
 	m_current_point = p;
@@ -545,7 +548,7 @@ int SvgFont::parse_path_horizontal_lineto_absolute(const char * path){
 }
 
 
-int SvgFont::parse_path_horizontal_lineto_relative(const char * path){
+int SvgFontManager::parse_path_horizontal_lineto_relative(const char * path){
 	float values[1];
 	sg_point_t p;
 	if( parse_number_arguments(path, values, 1) != 1 ){
@@ -555,7 +558,7 @@ int SvgFont::parse_path_horizontal_lineto_relative(const char * path){
 	p = convert_svg_coord(values[0], 0, false);
 	p.x += m_current_point.x();
 	p.y = m_current_point.y();
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -566,7 +569,7 @@ int SvgFont::parse_path_horizontal_lineto_relative(const char * path){
 }
 
 
-int SvgFont::parse_path_vertical_lineto_absolute(const char * path){
+int SvgFontManager::parse_path_vertical_lineto_absolute(const char * path){
 	float values[1];
 	sg_point_t p;
 	if( parse_number_arguments(path, values, 1) != 1 ){
@@ -575,7 +578,7 @@ int SvgFont::parse_path_vertical_lineto_absolute(const char * path){
 
 	p = convert_svg_coord(0, values[0]);
 	p.x = m_current_point.x();
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -585,7 +588,7 @@ int SvgFont::parse_path_vertical_lineto_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_vertical_lineto_relative(const char * path){
+int SvgFontManager::parse_path_vertical_lineto_relative(const char * path){
 	float values[1];
 	sg_point_t p;
 	if( parse_number_arguments(path, values, 1) != 1 ){
@@ -595,7 +598,7 @@ int SvgFont::parse_path_vertical_lineto_relative(const char * path){
 	p = convert_svg_coord(0, values[0], false);
 	p.x = m_current_point.x();
 	p.y += m_current_point.y();
-	m_path_description_list[m_object] = Vector::get_path_line(p);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_line(p);
 	m_object++;
 	m_current_point = p;
 
@@ -605,7 +608,7 @@ int SvgFont::parse_path_vertical_lineto_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_quadratic_bezier_absolute(const char * path){
+int SvgFontManager::parse_path_quadratic_bezier_absolute(const char * path){
 	float values[4];
 	Point p[2];
 	if( parse_number_arguments(path, values, 4) != 4 ){
@@ -615,7 +618,7 @@ int SvgFont::parse_path_quadratic_bezier_absolute(const char * path){
 	p[0] = convert_svg_coord(values[0], values[1]);
 	p[1] = convert_svg_coord(values[2], values[3]);
 
-	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 	m_control_point = p[0];
 	m_current_point = p[1];
@@ -628,7 +631,7 @@ int SvgFont::parse_path_quadratic_bezier_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_quadratic_bezier_relative(const char * path){
+int SvgFontManager::parse_path_quadratic_bezier_relative(const char * path){
 	float values[4];
 	Point p[2];
 	if( parse_number_arguments(path, values, 4) != 4 ){
@@ -638,7 +641,7 @@ int SvgFont::parse_path_quadratic_bezier_relative(const char * path){
 	p[0] = m_current_point + convert_svg_coord(values[0], values[1], false);
 	p[1] = m_current_point + convert_svg_coord(values[2], values[3], false);
 
-	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
 	printf("Quadratic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
@@ -655,7 +658,7 @@ int SvgFont::parse_path_quadratic_bezier_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_quadratic_bezier_short_absolute(const char * path){
+int SvgFontManager::parse_path_quadratic_bezier_short_absolute(const char * path){
 	float values[2];
 	Point p[2];
 	if( parse_number_arguments(path, values, 2) != 2 ){
@@ -665,7 +668,7 @@ int SvgFont::parse_path_quadratic_bezier_short_absolute(const char * path){
 	p[0].set(2*m_current_point.x() - m_control_point.x(), 2*m_current_point.y() - m_control_point.y());
 	p[1] = convert_svg_coord(values[0], values[1]);
 
-	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 	m_control_point = p[0];
 	m_current_point = p[1];
@@ -674,7 +677,7 @@ int SvgFont::parse_path_quadratic_bezier_short_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_quadratic_bezier_short_relative(const char * path){
+int SvgFontManager::parse_path_quadratic_bezier_short_relative(const char * path){
 	float values[2];
 	Point p[2];
 	if( parse_number_arguments(path, values, 2) != 2 ){
@@ -684,7 +687,7 @@ int SvgFont::parse_path_quadratic_bezier_short_relative(const char * path){
 	p[0].set(2*m_current_point.x() - m_control_point.x(), 2*m_current_point.y() - m_control_point.y());
 	p[1] = m_current_point + convert_svg_coord(values[0], values[1], false);
 
-	m_path_description_list[m_object] = Vector::get_path_quadratic_bezier(p[0], p[1]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
 	printf("Quadratic Bezier Short Relative (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
@@ -700,7 +703,7 @@ int SvgFont::parse_path_quadratic_bezier_short_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_cubic_bezier_absolute(const char * path){
+int SvgFontManager::parse_path_cubic_bezier_absolute(const char * path){
 	float values[6];
 	Point p[3];
 	if( parse_number_arguments(path, values, 6) != 6 ){
@@ -711,7 +714,7 @@ int SvgFont::parse_path_cubic_bezier_absolute(const char * path){
 	p[1] = convert_svg_coord(values[2], values[3]);
 	p[2] = convert_svg_coord(values[4], values[5]);
 
-	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -726,7 +729,7 @@ int SvgFont::parse_path_cubic_bezier_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_cubic_bezier_relative(const char * path){
+int SvgFontManager::parse_path_cubic_bezier_relative(const char * path){
 	float values[6];
 	Point p[3];
 	if( parse_number_arguments(path, values, 6) != 6 ){
@@ -737,7 +740,7 @@ int SvgFont::parse_path_cubic_bezier_relative(const char * path){
 	p[1] = m_current_point + convert_svg_coord(values[2], values[3]);
 	p[2] = m_current_point + convert_svg_coord(values[4], values[5]);
 
-	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -752,7 +755,7 @@ int SvgFont::parse_path_cubic_bezier_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_cubic_bezier_short_absolute(const char * path){
+int SvgFontManager::parse_path_cubic_bezier_short_absolute(const char * path){
 	float values[4];
 	Point p[3];
 	if( parse_number_arguments(path, values, 4) != 4 ){
@@ -764,7 +767,7 @@ int SvgFont::parse_path_cubic_bezier_short_absolute(const char * path){
 	p[1] = convert_svg_coord(values[0], values[1]);
 	p[2] = convert_svg_coord(values[2], values[3]);
 
-	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -777,7 +780,7 @@ int SvgFont::parse_path_cubic_bezier_short_absolute(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_path_cubic_bezier_short_relative(const char * path){
+int SvgFontManager::parse_path_cubic_bezier_short_relative(const char * path){
 	float values[4];
 	Point p[3];
 	if( parse_number_arguments(path, values, 4) != 4 ){
@@ -788,7 +791,7 @@ int SvgFont::parse_path_cubic_bezier_short_relative(const char * path){
 	p[1] = m_current_point + convert_svg_coord(values[0], values[1]);
 	p[2] = m_current_point + convert_svg_coord(values[2], values[3]);
 
-	m_path_description_list[m_object] = Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
+	m_path_description_list[m_object] = sgfx::Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
 	m_control_point = p[1];
 	m_current_point = p[2];
@@ -801,10 +804,10 @@ int SvgFont::parse_path_cubic_bezier_short_relative(const char * path){
 	return seek_path_command(path);
 }
 
-int SvgFont::parse_close_path(const char * path){
+int SvgFontManager::parse_close_path(const char * path){
 
 
-	m_path_description_list[m_object] = Vector::get_path_close();
+	m_path_description_list[m_object] = sgfx::Vector::get_path_close();
 	m_object++;
 
 	printf("Close Path\n");
@@ -814,7 +817,7 @@ int SvgFont::parse_close_path(const char * path){
 	return seek_path_command(path); //no arguments, cursor doesn't advance
 }
 
-int SvgFont::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, sg_point_t * points, sg_size_t max_points){
+int SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, sg_point_t * points, sg_size_t max_points){
 
 	Region region;
 	int pour_points = 0;
@@ -843,7 +846,7 @@ int SvgFont::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, 
 
 }
 
-void SvgFont::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid){
+void SvgFontManager::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid){
 	fill_points.clear();
 	bool is_fill;
 	for(sg_int_t x = region.x(); x < region.width(); x+=grid){
@@ -856,7 +859,7 @@ void SvgFont::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, 
 	}
 }
 
-bool SvgFont::is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region){
+bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region){
 	int boundary_count;
 	sg_color_t color;
 	sg_point_t temp = point;

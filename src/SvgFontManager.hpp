@@ -1,14 +1,14 @@
 /*! \file */ //Copyright 2011-2018 Tyler Gilbert; All Rights Reserved
 
 
-#ifndef SVGFONT_HPP_
-#define SVGFONT_HPP_
+#ifndef SVGFONTMANAGER_HPP_
+#define SVGFONTMANAGER_HPP_
 
 #include <sapi/sgfx.hpp>
 
-class SvgFont {
+class SvgFontManager {
 public:
-	SvgFont();
+	SvgFontManager();
 
 	int convert_file(const char * path);
 
@@ -76,4 +76,4 @@ private:
 
 };
 
-#endif /* SVGFONT_HPP_ */
+#endif /* SVGFONTMANAGER_HPP_ */

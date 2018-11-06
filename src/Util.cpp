@@ -29,7 +29,7 @@ void Util::show_file_font(const ConstString & path){
 	printf("Show font: %s\n", path.str());
 
 	if( ff.set_file(path) < 0 ){
-		printf("Failed to open font: '%s'\n", path);
+		printf("Failed to open font: '%s'\n", path.str());
 		perror("Open failed");
 		return;
 	}
@@ -55,6 +55,11 @@ void Util::show_font(Font & f){
 }
 
 void Util::show_system_font(int idx){
+
+#if defined __link
+	printf("System fonts not available\n");
+
+#else
 	Assets::init();
 	Font * f;
 
@@ -65,4 +70,5 @@ void Util::show_system_font(int idx){
 	} else {
 		printf("System font %d does not exist\n", idx);
 	}
+#endif
 }

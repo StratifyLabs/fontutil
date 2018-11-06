@@ -8,9 +8,9 @@
 #include <sapi/sys.hpp>
 #include <sapi/fmt.hpp>
 #include <sapi/sgfx.hpp>
+#include "ApplicationPrinter.hpp"
 
-
-class BmpFontManager {
+class BmpFontManager : public ApplicationPrinter {
 public:
 	BmpFontManager();
 

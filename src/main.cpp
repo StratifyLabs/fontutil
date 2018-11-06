@@ -12,7 +12,6 @@
 
 void show_usage(const Cli & cli);
 
-
 int main(int argc, char * argv[]){
 	String path;
 	bool overwrite;
@@ -24,20 +23,20 @@ int main(int argc, char * argv[]){
 
 	if( cli.is_option("-show") ){
 		path = cli.get_option_argument("-show");
-		printf("Show Font %s\n", path.c_str());
+		Ap::printer().message("Show Font %s", path.c_str());
 		Util::show_file_font(path);
 		exit(0);
 	}
 
 	if( cli.is_option("-clean") ){
 		path = cli.get_option_argument("-clean");
-		printf("Cleaning directory %s from sbf files\n", path.c_str());
+		Ap::printer().message("Cleaning directory %s from sbf files", path.c_str());
 		Util::clean_path(path, "sbf");
 		exit(0);
 	}
 
 	if( cli.is_option("-system") ){
-		printf("Show System font %d\n", cli.get_option_value("-system"));
+		Ap::printer().message("Show System font %d\n", cli.get_option_value("-system"));
 		Util::show_system_font( cli.get_option_value("-system") );
 		exit(0);
 	}

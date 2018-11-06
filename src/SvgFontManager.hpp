@@ -5,12 +5,14 @@
 #define SVGFONTMANAGER_HPP_
 
 #include <sapi/sgfx.hpp>
+#include <sapi/var.hpp>
+#include "ApplicationPrinter.hpp"
 
-class SvgFontManager {
+class SvgFontManager : public ApplicationPrinter {
 public:
 	SvgFontManager();
 
-	int convert_file(const char * path);
+	int convert_file(const ConstString & path);
 
 private:
 	int parse_svg_path(const char * d);

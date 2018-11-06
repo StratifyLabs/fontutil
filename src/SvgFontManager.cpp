@@ -5,6 +5,7 @@
 #include <sapi/fmt.hpp>
 #include <sapi/var.hpp>
 #include <sapi/sys.hpp>
+#include <sapi/chrono.hpp>
 #include <sapi/hal.hpp>
 #include "SvgFontManager.hpp"
 
@@ -16,7 +17,7 @@ void sg_point_unmap(sg_point_t * d, const sg_vector_map_t * m){
 	//y' = m->region.point.y + ((y + SG_MAX) * m->region.dim.height) / (SG_MAX-SG_MIN);
 
 	//(x' - m->region.point.x)*(SG_MAX-SG_MIN)/ m->region.dim.width - SG_MAX = x
-	printf("%d - %d * %d / %d\n", d->x, m->region.point.x, (SG_MAX-SG_MIN), m->region.dim.width);
+	//printer().message("%d - %d * %d / %d", d->x, m->region.point.x, (SG_MAX-SG_MIN), m->region.dim.width);
 	tmp = ((d->x - m->region.point.x)*(SG_MAX-SG_MIN) + m->region.dim.width/2) / m->region.dim.width;
 	d->x = tmp - SG_MAX;
 
@@ -32,97 +33,102 @@ SvgFontManager::SvgFontManager() {
 }
 
 
-int SvgFontManager::convert_file(const char * path){
+int SvgFontManager::convert_file(const ConstString & path){
 	Son font;
 	String value;
 	value.set_size(2048);
 	String access;
-	DisplayDevice display;
+	Bitmap canvas;
 	sg_point_t pour_points[MAX_FILL_POINTS];
 	int j;
 	int i;
 	int num_fill_points;
 
+	printer().open_object("svg.convert");
 
-	if( font.open_read(path) < 0 ){ return -1; }
+	if( font.open_read(path) < 0 ){
+		printer().error("failed to open %s", path.str());
+		printer().close_object();
+		return -1;
+	}
 
 	value = font.read_string("glyphs[0].attrs.bbox");
 	if( value.is_empty() == false ){
 		parse_bounds(value.c_str());
-		printf("Bounds: %d,%d %dx%d\n", m_bounds.point.x, m_bounds.point.y, m_bounds.dim.width, m_bounds.dim.height);
+		printer().message("Bounds: %d,%d %dx%d", m_bounds.point.x, m_bounds.point.y, m_bounds.dim.width, m_bounds.dim.height);
 	}
 
 
-	display.initialize("/dev/display0");
-	display.set_pen(Pen(1,1));
-	VectorMap map(display);
-	Bitmap fill(display.dim());
+	canvas.set_size(128,128);
+
+	canvas.set_pen(Pen(1,1));
+	VectorMap map(canvas);
+	Bitmap fill(canvas.dim());
 
 	//map.set_point(sg_point(display.width()/2,display.height()/2));
 	//map.set_dim(display.width(), display.width());
 
-
-
 	j = 7;
 	for(j=150; j < 200;j++){
 		//d is the path
-		printf("Any errors: %d\n", font.get_error());
-		access.sprintf("glyphs[%d].attrs.glyphName", j);
+		printer().message("Any errors: %d on %d", font.get_error(), j);
+		access.format("glyphs[%d].attrs.glyphName", j);
 		value = font.read_string(access);
 		if( value.is_empty() == false ){
-			printf("Glyph Name: %s\n", value.c_str());
+			printer().message("Glyph Name: %s", value.c_str());
 		} else {
-			printf("SOn error %d\n", font.get_error());
+			printer().message("SOn error %d", font.get_error());
 			exit(1);
 		}
 
-		access.sprintf("glyphs[%d].attrs.d", j);
+		access.format("glyphs[%d].attrs.d", j);
 		value = font.read_string(access);
 		if( value.is_empty() == false ){
-			printf("Read value:%s\n", value.c_str());
+			printer().message("Read value:%s", value.c_str());
 			if( parse_svg_path(value.c_str()) < 0 ){
+				printer().error("failed to parse svg path");
+				printer().close_object();
 				return -1;
 			}
 		} else {
-			printf("Failed to read %s\n", access.c_str());
+			printer().error("failed to read %s", access.str());
+			printer().close_object();
 			return -1;
 		}
 
-		printf("%d elements\n", m_object);
+		printer().message("%d elements", m_object);
 
 
 		sg_vector_path_t vector_path;
 
 		vector_path.icon.count = m_object;
 		vector_path.icon.list = m_path_description_list;
-		vector_path.region = display.get_viewable_region();
-
-
+		vector_path.region = canvas.get_viewable_region();
 
 		//Vector::show(icon);
 
-		display.clear();
+		canvas.clear();
 
 		map.set_rotation(0);
 
-		sgfx::Vector::draw_path(display, vector_path, map);
+		sgfx::Vector::draw_path(canvas, vector_path, map);
 
-		display.refresh();
-		display.wait(1000);
+		canvas.refresh();
+		canvas.wait(MicroTime(1000));
 
-		analyze_icon(display, vector_path, map, true);
+		analyze_icon(canvas, vector_path, map, true);
 
-		display.wait(1000);
-		display.refresh();
+		canvas.wait(MicroTime(1000));
+		canvas.refresh();
 
-		find_all_fill_points(display, fill, display.get_viewable_region(), 6);
+		find_all_fill_points(canvas, fill, canvas.get_viewable_region(), 6);
 
 #if 0
 		display.set_pen_flags(Pen::FLAG_IS_BLEND);
 		display.draw_bitmap(sg_point(0,0), fill);
 #else
 
-		num_fill_points = calculate_pour_points(display, fill, pour_points, MAX_FILL_POINTS);
+		num_fill_points = calculate_pour_points(canvas, fill, pour_points, MAX_FILL_POINTS);
 		if( num_fill_points < MAX_FILL_POINTS ){
 			for(i=0; i < num_fill_points; i++){
 				sg_point_t pour_point;
@@ -132,31 +138,31 @@ int SvgFontManager::convert_file(const char * path){
 					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
 					m_object++;
 				} else {
-					printf("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST\n");
+					printer().message("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST");
 				}
 			}
 		} else {
-			printf("FAILED -- TOO MANY FILL POINTS\n");
+			printer().message("FAILED -- TOO MANY FILL POINTS");
 		}
 
 		//if entire display is poured, there is a rogue fill point
 
-		display.clear();
+		canvas.clear();
 
-		printf("Draw final\n");
+		printer().message("Draw fina");
 		vector_path.icon.count = m_object;
 
 		Timer t;
 		t.start();
-		sgfx::Vector::draw_path(display, vector_path, map);
+		sgfx::Vector::draw_path(canvas, vector_path, map);
 		t.stop();
-		printf("Draw time is %ld\n", t.usec());
+		printer().message("Draw time is " F32U, t.usec());
 #endif
 
-		display.wait(1000);
-		display.refresh();
+		canvas.wait(MicroTime(1000));
+		canvas.refresh();
 
-		printf("Done refresh\n");
+		printer().message("Done refresh");
 	}
 
 	return 0;
@@ -173,19 +179,17 @@ void SvgFontManager::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_pat
 	target.set_point(Point(0, 0));
 	target.set_dim(Dim(width, width));
 
-	printf("Active region %d,%d %dx%d\n", region.x(), region.y(), region.width(), region.height());
-	printf("Target region %d,%d %dx%d\n", target.x(), target.y(), target.width(), target.height());
+	printer().message("Active region %d,%d %dx%d", region.x(), region.y(), region.width(), region.height());
+	printer().message("Target region %d,%d %dx%d", target.x(), target.y(), target.width(), target.height());
 
 	bitmap_shift.x = (bitmap.width()/2 - region.width()/2) - region.x();
 	bitmap_shift.y = (bitmap.width()/2 - region.height()/2) - region.y();
-	printf("Offset Error is %d,%d\n", bitmap_shift.x, bitmap_shift.y);
+	printer().message("Offset Error is %d,%d", bitmap_shift.x, bitmap_shift.y);
 
 	map_shift.x = (bitmap_shift.x * SG_MAX*2 + map.width()/2) / map.width();
 	map_shift.y = (bitmap_shift.y * SG_MAX*2 + map.height()/2) / map.height();
 
-	printf("Map Shift is %d,%d\n", map_shift.x, map_shift.y);
-
-
+	printer().message("Map Shift is %d,%d", map_shift.x, map_shift.y);
 
 	if( recheck ){
 		shift_icon(vector_path.icon, map_shift);
@@ -198,8 +202,6 @@ void SvgFontManager::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_pat
 
 		analyze_icon(bitmap, vector_path, map, false);
 	}
-
-
 
 	//bitmap.draw_rectangle(region.point(), region.dim());
 }
@@ -279,7 +281,7 @@ int SvgFontManager::parse_svg_path(const char * d){
 
 	m_object = 0;
 
-	printf("Parse (%d) %s\n", len, d);
+	printer().message("Parse (%d) %s", len, d);
 	i = 0;
 	ret = 0;
 	do {
@@ -345,24 +347,24 @@ int SvgFontManager::parse_svg_path(const char * d){
 				ret = parse_close_path(d+i);
 				break;
 			default:
-				printf("Unhandled command char %c\n", command_char);
+				printer().message("Unhandled command char %c", command_char);
 				return -1;
 			}
 			if( ret >= 0 ){
 				i += ret;
 			} else {
-				printf("Parsing failed at %s\n", d + i - 1);
+				printer().message("Parsing failed at %s", d + i - 1);
 				return -1;
 			}
 		} else {
-			printf("Invalid at -%s-\n", d+i);
+			printer().message("Invalid at -%s-", d+i);
 			return -1;
 		}
 
 	} while( (i < len) && (m_object < PATH_DESCRIPTION_MAX) );
 
 	if( m_object == PATH_DESCRIPTION_MAX ){
-		printf("Max Objects\n");
+		printer().message("Max Objects");
 		return -1;
 	}
 
@@ -435,7 +437,7 @@ int SvgFontManager::parse_bounds(const char * value){
 
 	m_scale = (float)(SG_MAP_MAX*2) / scale_factor ;
 
-	printf("Bounds: (%d, %d) (%dx%d)\n",
+	printer().message("Bounds: (%d, %d) (%dx%d)",
 			m_bounds.point.x,
 			m_bounds.point.y,
 			m_bounds.dim.width,
@@ -472,7 +474,7 @@ int SvgFontManager::parse_path_moveto_absolute(const char * path){
 	m_object++;
 
 
-	printf("Moveto Absolute (%0.1f,%0.1f) -> (%d,%d)\n",
+	printer().message("Moveto Absolute (%0.1f,%0.1f) -> (%d,%d)",
 			values[0], values[1],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -489,7 +491,7 @@ int SvgFontManager::parse_path_moveto_relative(const char * path){
 	m_path_description_list[m_object] = sgfx::Vector::get_path_move(m_current_point);
 	m_object++;
 
-	printf("Moveto Relative (%0.1f,%0.1f)\n", values[0], values[1]);
+	printer().message("Moveto Relative (%0.1f,%0.1f)", values[0], values[1]);
 	return seek_path_command(path);
 }
 
@@ -505,7 +507,7 @@ int SvgFontManager::parse_path_lineto_absolute(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Lineto Absolute (%0.1f,%0.1f)\n", values[0], values[1]);
+	printer().message("Lineto Absolute (%0.1f,%0.1f)", values[0], values[1]);
 	return seek_path_command(path);
 }
 
@@ -521,7 +523,7 @@ int SvgFontManager::parse_path_lineto_relative(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Lineto Relative (%0.1f,%0.1f) -> (%d,%d)\n",
+	printer().message("Lineto Relative (%0.1f,%0.1f) -> (%d,%d)",
 			values[0], values[1],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -541,7 +543,7 @@ int SvgFontManager::parse_path_horizontal_lineto_absolute(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Horizontal Lineto Absolute (%0.1f) -> (%d,%d)\n",
+	printer().message("Horizontal Lineto Absolute (%0.1f) -> (%d,%d)",
 			values[0],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -562,7 +564,7 @@ int SvgFontManager::parse_path_horizontal_lineto_relative(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Horizontal Lineto Relative (%0.1f) -> (%d,%d)\n",
+	printer().message("Horizontal Lineto Relative (%0.1f) -> (%d,%d)",
 			values[0],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -582,7 +584,7 @@ int SvgFontManager::parse_path_vertical_lineto_absolute(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Vertical Lineto Absolute (%0.1f) -> (%d,%d)\n",
+	printer().message("Vertical Lineto Absolute (%0.1f) -> (%d,%d)",
 			values[0],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -602,7 +604,7 @@ int SvgFontManager::parse_path_vertical_lineto_relative(const char * path){
 	m_object++;
 	m_current_point = p;
 
-	printf("Vertical Lineto Relative (%0.1f) -> (%d,%d)\n",
+	printer().message("Vertical Lineto Relative (%0.1f) -> (%d,%d)",
 			values[0],
 			m_current_point.x(), m_current_point.y());
 	return seek_path_command(path);
@@ -623,7 +625,7 @@ int SvgFontManager::parse_path_quadratic_bezier_absolute(const char * path){
 	m_control_point = p[0];
 	m_current_point = p[1];
 
-	printf("Quadratic Bezier Absolute (%0.1f,%0.1f), (%0.1f,%0.1f)\n",
+	printer().message("Quadratic Bezier Absolute (%0.1f,%0.1f), (%0.1f,%0.1f)",
 			values[0],
 			values[1],
 			values[2],
@@ -644,7 +646,7 @@ int SvgFontManager::parse_path_quadratic_bezier_relative(const char * path){
 	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
-	printf("Quadratic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
+	printer().message("Quadratic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)",
 			values[0], values[1],
 			values[2], values[3],
 			m_current_point.x(), m_current_point.y(),
@@ -673,7 +675,7 @@ int SvgFontManager::parse_path_quadratic_bezier_short_absolute(const char * path
 	m_control_point = p[0];
 	m_current_point = p[1];
 
-	printf("Quadratic Bezier Short Absolute (%0.1f,%0.1f)\n", values[0], values[1]);
+	printer().message("Quadratic Bezier Short Absolute (%0.1f,%0.1f)", values[0], values[1]);
 	return seek_path_command(path);
 }
 
@@ -690,7 +692,7 @@ int SvgFontManager::parse_path_quadratic_bezier_short_relative(const char * path
 	m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(p[0], p[1]);
 	m_object++;
 
-	printf("Quadratic Bezier Short Relative (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)\n",
+	printer().message("Quadratic Bezier Short Relative (%0.1f,%0.1f) -> (%d,%d), (%d,%d), (%d, %d)",
 			values[0], values[1],
 			m_current_point.x(), m_current_point.y(),
 			p[0].x(), p[0].y(),
@@ -719,7 +721,7 @@ int SvgFontManager::parse_path_cubic_bezier_absolute(const char * path){
 	m_control_point = p[1];
 	m_current_point = p[2];
 
-	printf("Cubic Bezier Absolute (%0.1f,%0.1f), (%0.1f,%0.1f), (%0.1f,%0.1f)\n",
+	printer().message("Cubic Bezier Absolute (%0.1f,%0.1f), (%0.1f,%0.1f), (%0.1f,%0.1f)",
 			values[0],
 			values[1],
 			values[2],
@@ -745,7 +747,7 @@ int SvgFontManager::parse_path_cubic_bezier_relative(const char * path){
 	m_control_point = p[1];
 	m_current_point = p[2];
 
-	printf("Cubic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f), (%0.1f,%0.1f)\n",
+	printer().message("Cubic Bezier Relative (%0.1f,%0.1f), (%0.1f,%0.1f), (%0.1f,%0.1f)",
 			values[0],
 			values[1],
 			values[2],
@@ -772,7 +774,7 @@ int SvgFontManager::parse_path_cubic_bezier_short_absolute(const char * path){
 	m_control_point = p[1];
 	m_current_point = p[2];
 
-	printf("Cubic Bezier Short Absolute (%0.1f,%0.1f), (%0.1f,%0.1f)\n",
+	printer().message("Cubic Bezier Short Absolute (%0.1f,%0.1f), (%0.1f,%0.1f)",
 			values[0],
 			values[1],
 			values[2],
@@ -796,7 +798,7 @@ int SvgFontManager::parse_path_cubic_bezier_short_relative(const char * path){
 	m_control_point = p[1];
 	m_current_point = p[2];
 
-	printf("Cubic Bezier Short Relative (%0.1f,%0.1f), (%0.1f,%0.1f)\n",
+	printer().message("Cubic Bezier Short Relative (%0.1f,%0.1f), (%0.1f,%0.1f)",
 			values[0],
 			values[1],
 			values[2],
@@ -810,7 +812,7 @@ int SvgFontManager::parse_close_path(const char * path){
 	m_path_description_list[m_object] = sgfx::Vector::get_path_close();
 	m_object++;
 
-	printf("Close Path\n");
+	printer().message("Close Path");
 
 	//need to figure out where to put the fill
 
@@ -824,13 +826,13 @@ int SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_p
 
 	region = bitmap.get_viewable_region();
 
-	printf("Region is %d,%d %dx%d\n", region.x(), region.y(), region.width(), region.height());
+	printer().message("Region is %d,%d %dx%d", region.x(), region.y(), region.width(), region.height());
 
 	sg_point_t point;
 	for(point.x = 0; point.x < fill_points.width(); point.x++){
 		for(point.y = 0; point.y < fill_points.height(); point.y++){
 			if( (fill_points.get_pixel(point) != 0) && (bitmap.get_pixel(point) == 0) ){
-				printf("Pour on %d,%d\n", point.x, point.y);
+				printer().message("Pour on %d,%d", point.x, point.y);
 				bitmap.draw_pour(point, region);
 				points[pour_points] = point;
 				pour_points++;

@@ -7,8 +7,9 @@
 #include <sapi/sys.hpp>
 #include <sapi/sgfx.hpp>
 #include <sapi/var.hpp>
+#include "ApplicationPrinter.hpp"
 
-class Util {
+class Util : public ApplicationPrinter {
 public:
 	static void show_file_font(const ConstString & path);
 	static void show_font(Font & f);

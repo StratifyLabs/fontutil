@@ -49,7 +49,7 @@ void Util::show_font(Font & f){
 		b.clear();
 		f.draw_char(Font::charset()[i], b, sg_point(0,0));
 		printf("\twidth:%d height:%d xadvance:%d\n",
-				f.character().width, f.character().height, f.character().xadvance);
+				f.character().width, f.character().height, f.character().advance_x);
 		b.show();
 	}
 }

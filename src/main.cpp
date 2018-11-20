@@ -23,14 +23,14 @@ int main(int argc, char * argv[]){
 
 	if( cli.is_option("-show") ){
 		path = cli.get_option_argument("-show");
-		Ap::printer().message("Show Font %s", path.c_str());
+		Ap::printer().message("Show Font %s", path.cstring());
 		Util::show_file_font(path);
 		exit(0);
 	}
 
 	if( cli.is_option("-clean") ){
 		path = cli.get_option_argument("-clean");
-		Ap::printer().message("Cleaning directory %s from sbf files", path.c_str());
+		Ap::printer().message("Cleaning directory %s from sbf files", path.cstring());
 		Util::clean_path(path, "sbf");
 		exit(0);
 	}
@@ -60,10 +60,16 @@ int main(int argc, char * argv[]){
 	}
 
 	if( cli.is_option("-bmp") ){
-		BmpFontManager::convert_directory(path.c_str(), overwrite, verbose);
+		BmpFontManager bmp_font;
+		bmp_font.convert_directory(path, overwrite, verbose);
 	} else if( cli.is_option("-svg") ){
 		SvgFontManager svg_font;
-		svg_font.convert_file(path.c_str());
+		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
+		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
+		if( cli.is_option("-character_set") ){
+			svg_font.set_character_set( cli.get_option_argument("-character_set"));
+		}
+		svg_font.convert_file(path);
 	}
 
 	return 0;

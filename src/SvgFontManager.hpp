@@ -7,6 +7,7 @@
 #include <sapi/sgfx.hpp>
 #include <sapi/var.hpp>
 #include "ApplicationPrinter.hpp"
+#include "BmpFontManager.hpp"
 
 class SvgFontManager : public ApplicationPrinter {
 public:
@@ -14,7 +15,34 @@ public:
 
 	int convert_file(const ConstString & path);
 
+	void set_canvas_size(u16 size){
+		m_canvas_size = size;
+		if( size == 0 ){ m_canvas_size = 128; }
+	}
+
+	void set_show_canvas(bool value = true){
+		m_is_show_canvas = value;
+	}
+
+	void set_pour_grid_size(u16 size){
+		m_pour_grid_size = size;
+		if( size == 0 ){ m_pour_grid_size = 8; }
+	}
+
+	void set_character_set(const ConstString & character_set){
+		m_character_set = character_set;
+	}
+
 private:
+
+	BmpFontManager m_bmp_font_manager; //used for exporting to bmp
+
+	u16 m_canvas_size;
+	Dim m_canvas_dimensions;
+	Point m_canvas_origin;
+	u16 m_pour_grid_size;
+	bool m_is_show_canvas;
+
 	int parse_svg_path(const char * d);
 
 	static const char * path_commands_space(){ return "MmCcSsLlHhVvQqTtAaZz \n\t"; }
@@ -60,20 +88,26 @@ private:
 
 	enum {
 		PATH_DESCRIPTION_MAX = 256,
-		MAX_FILL_POINTS = 32
 	};
 
 	int m_state;
 	Point m_current_point;
 	Point m_control_point;
-	sg_region_t m_bounds;
+	Region m_bounds;
 	float m_scale;
 	int m_object;
 	sg_vector_path_description_t m_path_description_list[PATH_DESCRIPTION_MAX];
 
-	static int calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points, sg_point_t * points, sg_size_t max_points);
+	String m_character_set;
+
+	Vector<sg_font_char_t> m_font_character_list;
+
+	static Vector<sg_point_t> calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points);
 	static void find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid);
 	static bool is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region);
+
+	int process_glyph(const JsonObject & glyph);
+	int process_hkern(const JsonObject & kerning);
 
 
 };

@@ -32,8 +32,9 @@ SvgFontManager::SvgFontManager() {
 	// TODO Auto-generated constructor stub
 	m_scale = 0.0f;
 	m_object = 0;
-	m_character_set = Font::charset();
+	m_character_set = Font::ascii_character_set();
 	m_is_show_canvas = true;
+	m_bmp_font_manager.set_is_ascii();
 }
 
 
@@ -78,7 +79,7 @@ int SvgFontManager::convert_file(const ConstString & path){
 	printer().message("bbox: %s", value.str());
 
 	if( value.is_empty() == false ){
-		parse_bounds(value.cstring());
+		parse_bounds(value.cstring(), units_per_em);
 		printer().open_object("SVG bounds");
 		printer() << m_bounds;
 		printer().close_object();
@@ -102,7 +103,13 @@ int SvgFontManager::convert_file(const ConstString & path){
 		}
 	}
 
-	m_bmp_font_manager.generate_font_file("./font.sbf");
+	String output_name = File::name(path);
+	u32 suffix = output_name.find('.');
+	if( suffix != String::npos ){
+		output_name.erase(suffix);
+	}
+	output_name << String().format("-%d.sbf", m_point_size);
+	m_bmp_font_manager.generate_font_file(output_name);
 
 
 	return 0;
@@ -180,13 +187,41 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 	String glyph_name = glyph.at("glyphName").to_string();
 	String unicode = glyph.at("unicode").to_string();
-
+	u8 ascii_value;
 
 	bool is_in_character_set = false;
 	if( unicode.length() == 1 ){
-		char c = unicode.at(0);
-		if( m_character_set.find(unicode) != String::npos ){
+		ascii_value = unicode.at(0);
+		if( m_character_set.find(ascii_value) != String::npos ){
 			is_in_character_set = true;
+		}
+	} else {
+		if( glyph_name == "ampersand" ){
+			if( m_character_set.find("&") != String::npos ){
+				ascii_value = '&';
+				is_in_character_set = true;
+			}
+		}
+
+		if( glyph_name == "quotesinglbase" ){
+			if( m_character_set.find("\"") != String::npos ){
+				ascii_value = '"';
+				is_in_character_set = true;
+			}
+		}
+
+		if( glyph_name == "less" ){
+			if( m_character_set.find("\"") != String::npos ){
+				ascii_value = '<';
+				is_in_character_set = true;
+			}
+		}
+
+		if( glyph_name == "greater" ){
+			if( m_character_set.find("\"") != String::npos ){
+				ascii_value = '>';
+				is_in_character_set = true;
+			}
 		}
 	}
 
@@ -205,6 +240,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 		// \todo Add to character info advance_x
 
 		String drawing_path;
+		Bitmap canvas;
 		drawing_path = glyph.at("d").to_string();
 		if( drawing_path != "<invalid>" ){
 			printer().message("Read value:%s", drawing_path.cstring());
@@ -214,7 +250,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 				return -1;
 			}
 
-			Bitmap canvas(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4);
+			canvas.allocate(Dim(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4));
 			canvas.set_margin_left(2);
 			canvas.set_margin_right(2);
 			canvas.set_margin_top(2);
@@ -270,54 +306,53 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 #if SHOW_ORIGIN
 			canvas.draw_line(Point(m_canvas_origin.x(), 0), Point(m_canvas_origin.x(), canvas.y_max()));
 			canvas.draw_line(Point(0, m_canvas_origin.y()), Point(canvas.x_max(), m_canvas_origin.y()));
-#endif
 
 			if( m_is_show_canvas ){
 				printer().open_object(String().format("character-%s", unicode.cstring()));
 				printer() << canvas;
 				printer().close_object();
 			}
+#endif
+		}
 
-			Region active_region = canvas.calculate_active_region();
-			Bitmap active_canvas(active_region.dim());
-			active_canvas.draw_sub_bitmap(sg_point(0,0), canvas, active_region);
-
-			//find region inhabited by character
-
-			sg_font_char_t character;
-
-			character.id = unicode.at(0); //unicode value
-			character.advance_x = x_advance.to_integer(); //value from SVG file
+		Region active_region = canvas.calculate_active_region();
+		Bitmap active_canvas(active_region.dim());
+		active_canvas.draw_sub_bitmap(sg_point(0,0), canvas, active_region);
 
 
-			//derive width, height, offset_x, offset_y from image
-			//for offset_x and offset_y what is the standard?
+		//find region inhabited by character
 
-			character.width = active_canvas.width(); //width of bitmap
-			character.height = active_canvas.height(); //height of the bitmap
-			character.offset_x = active_region.point().x() - m_canvas_origin.x(); //x offset when drawing the character
-			character.offset_y = active_region.point().y(); //y offset when drawing the character
+		sg_font_char_t character;
 
-			//add character to master canvas, canvas_x and canvas_y are location on the master canvas
-			character.canvas_x = 0; //x location on master canvas -- set when font is generated
-			character.canvas_y = 0; //y location on master canvas -- set when font is generated
+		character.id = ascii_value; //unicode value
+		character.advance_x = x_advance.to_integer(); //value from SVG file
 
-			m_bmp_font_manager.character_list().push_back(character);
-			m_bmp_font_manager.bitmap_list().push_back(active_canvas);
+
+		//derive width, height, offset_x, offset_y from image
+		//for offset_x and offset_y what is the standard?
+
+		character.width = active_canvas.width(); //width of bitmap
+		character.height = active_canvas.height(); //height of the bitmap
+		character.offset_x = active_region.point().x() - m_canvas_origin.x(); //x offset when drawing the character
+		character.offset_y = active_region.point().y(); //y offset when drawing the character
+
+		//add character to master canvas, canvas_x and canvas_y are location on the master canvas
+		character.canvas_x = 0; //x location on master canvas -- set when font is generated
+		character.canvas_y = 0; //y location on master canvas -- set when font is generated
+
+		m_bmp_font_manager.character_list().push_back(character);
+		m_bmp_font_manager.bitmap_list().push_back(active_canvas);
 
 #if !SHOW_ORIGIN
-			if( m_is_show_canvas ){
-				printer().open_object(String().format("active character-%s", unicode.cstring()));
-				printer() << active_region;
-				printer() << active_canvas;
-				printer().close_object();
-			}
+		if( m_is_show_canvas ){
+			printer().open_object(String().format("active character-%s", unicode.cstring()));
+			printer() << active_region;
+			printer() << active_canvas;
+			printer().close_object();
+		}
 #endif
 
-		} else {
-			printer().error("%s has no d value", glyph_name.str());
-			return -1;
-		}
+
 	}
 	return 0;
 
@@ -578,7 +613,7 @@ int SvgFontManager::seek_path_command(const char * path){
 	return i;
 }
 
-int SvgFontManager::parse_bounds(const char * value){
+int SvgFontManager::parse_bounds(const char * value, u32 unit_per_em){
 	float values[4];
 
 	Dim canvas_dimensions;
@@ -600,6 +635,7 @@ int SvgFontManager::parse_bounds(const char * value){
 	m_canvas_origin = Point(m_bounds.point().x()*-1 * m_canvas_dimensions.width() / (m_bounds.dim().width()),
 									(m_bounds.dim().height() + m_bounds.point().y()) * m_canvas_dimensions.height() / (m_bounds.dim().height()) );
 
+	m_point_size = unit_per_em * scale;
 
 	return 0;
 }

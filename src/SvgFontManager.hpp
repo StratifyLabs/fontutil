@@ -31,6 +31,7 @@ public:
 
 	void set_character_set(const ConstString & character_set){
 		m_character_set = character_set;
+		m_bmp_font_manager.set_is_ascii(false);
 	}
 
 private:
@@ -56,7 +57,7 @@ private:
 		TOTAL_STATE
 	};
 
-	int parse_bounds(const char * value);
+	int parse_bounds(const char * value, u32 units_per_em);
 
 	int parse_path_moveto_absolute(const char * path);
 	int parse_path_moveto_relative(const char * path);
@@ -95,6 +96,7 @@ private:
 	Point m_control_point;
 	Region m_bounds;
 	float m_scale;
+	u16 m_point_size;
 	int m_object;
 	sg_vector_path_description_t m_path_description_list[PATH_DESCRIPTION_MAX];
 

@@ -42,12 +42,12 @@ void Util::show_font(Font & f){
 	int i;
 
 	printf("Alloc bitmap %d x %d\n", f.get_width(), f.get_height());
-	b.alloc(f.get_width(), f.get_height());
+	b.allocate(Dim(f.get_width()*5/4, f.get_height()*5/4));
 
-	for(i=0; i < Font::CHARSET_SIZE; i++){
-		printf("Character: %c\n", Font::charset()[i]);
+	for(i=0; i < Font::ascii_character_set().length(); i++){
+		printf("Character: %c\n", Font::ascii_character_set().at(i));
 		b.clear();
-		f.draw_char(Font::charset()[i], b, sg_point(0,0));
+		f.draw(Font::ascii_character_set().at(i), b, Point(b.width()/5, 0));
 		printf("\twidth:%d height:%d xadvance:%d\n",
 				f.character().width, f.character().height, f.character().advance_x);
 		b.show();

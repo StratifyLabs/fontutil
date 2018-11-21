@@ -3,7 +3,9 @@
 
 #include "BmpFontManager.hpp"
 
-BmpFontManager::BmpFontManager(){}
+BmpFontManager::BmpFontManager(){
+	m_is_ascii = false;
+}
 
 int BmpFontManager::convert_directory(const ConstString & dir_path, bool overwrite, int verbose){
 	Dir dir;
@@ -46,7 +48,7 @@ int BmpFontManager::convert_directory(const ConstString & dir_path, bool overwri
 				Ap::printer().message("already exists");
 			} else {
 				Ap::printer().message("converting");
-				BmpFontManager::load_font_from_bmp_files(font, font_bmp, font_sbf, Font::charset(), verbose);
+				BmpFontManager::load_font_from_bmp_files(font, font_bmp, font_sbf, Font::ascii_character_set(), verbose);
 			}
 		}
 	}
@@ -116,7 +118,7 @@ int BmpFontManager::load_font_from_bmp_files(const ConstString & def_file, const
 	canvas_size = canvas.calc_size();
 
 	if( charset != 0 ){
-		header.character_count = Font::CHARSET_SIZE;
+		header.character_count = Font::ascii_character_set().length();
 	} else {
 		//count the characters -- any chars with ID over 255
 		header.character_count = 0;
@@ -297,6 +299,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	//populate the header
 	sg_font_header_t header;
 	area = 0;
+	header.max_height = 0;
 
 	for(u32 i = 0; i < character_list().count(); i++){
 		if( character_list().at(i).width > max_character_width ){
@@ -316,19 +319,21 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	header.character_count = character_list().count();
 	header.kerning_pair_count = kerning_pair_list().count();
 	header.size = sizeof(header) + header.character_count*sizeof(sg_font_char_t) + header.kerning_pair_count*sizeof(sg_font_kerning_pair_t);
-
+	header.canvas_width = header.max_word_width*2*32;
+	header.canvas_height = header.max_height*3/2;
 
 	printer().key("max word width", "%d", header.max_word_width);
 	printer().key("area", "%d", area);
 
-	u32 master_width = header.max_word_width*2*32;
-	u32 master_height = (area / master_width)*2;
+	Dim master_dim(header.canvas_width, header.canvas_height);
 
-	printer().key("master width", "%d", master_width);
-	printer().key("master height", "%d", master_height);
+	printer().key("master width", "%d", master_dim.width());
+	printer().key("master height", "%d", master_dim.height());
 
 
-	if( master_canvas.alloc(master_width, master_height) < 0 ){
+	Vector<Bitmap> master_canvas_list;
+
+	if( master_canvas.allocate(master_dim) < 0 ){
 		printer().error("Failed to allocate memory for master canvas");
 		return -1;
 	}
@@ -341,37 +346,42 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 
 	for(u32 i = 0; i < character_list().count(); i++){
 		//find a place for the character on the master bitmap
-
 		Region region;
-		region = find_space_on_canvas(master_canvas, bitmap_list().at(i).dim());
 
-		if( !region.is_valid() ){
-			//failure
-			printer().error("failed to find a region for character");
-			return -1;
-		}
+		printer().message("find space for %c %dx%d", character_list().at(i).id,
+								character_list().at(i).width, character_list().at(i).height);
+		do {
 
-		character_list().at(i).canvas_x = region.x();
-		character_list().at(i).canvas_y = region.y();
-		character_list().at(i).canvas_idx = header.size;
+			for(u32 j = 0; j < master_canvas_list.count(); j++){
+				region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).dim());
+				if( region.is_valid() ){
+					character_list().at(i).canvas_x = region.x();
+					character_list().at(i).canvas_y = region.y();
+					character_list().at(i).canvas_idx = j;
+					break;
+				}
+			}
+
+			if( region.is_valid() == false ){
+				if( master_canvas_list.push_back(master_canvas) < 0 ){
+					printer().error("failed to add additional canvas");
+					return -1;
+				}
+			}
+
+		} while( !region.is_valid() );
 	}
-
-
-	//get the active region of the master canvas
-	Region active_region = master_canvas.calculate_active_region();
-
-	header.canvas_width = active_region.dim().width();
-	header.canvas_height = active_region.dim().height();
-
-	master_canvas.set_size(active_region.width(), active_region.height());
-	master_canvas.clear();
 
 	for(u32 i = 0; i < character_list().count(); i++){
 		Point p(character_list().at(i).canvas_x, character_list().at(i).canvas_y);
-		master_canvas.draw_bitmap(p, bitmap_list().at(i));
+		master_canvas_list.at(character_list().at(i).canvas_idx).draw_bitmap(p, bitmap_list().at(i));
 	}
 
-	master_canvas.show();
+	for(u32 i=0; i < master_canvas_list.count(); i++){
+		printer().open_object(String().format("master canvas %d", i));
+		printer() << master_canvas_list.at(i);
+		printer().close_object();
+	}
 
 	if( font_file.write(&header, sizeof(header)) < 0 ){
 		return -1;
@@ -386,23 +396,29 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 		}
 	}
 
-	//write the characters
-	for(u32 i = 0; i < character_list().count(); i++){
-		Data character;
-		character.refer_to(&character_list().at(i), sizeof(sg_font_char_t));
-
-		printer().message("write character %d", character_list().at(i).width);
-
-		//create the master canvas -- write all bitmaps to it -- find space
-		if( font_file.write(character) != character.size() ){
-			printer().error("failed to write kerning pair");
-			return -1;
+	//write characters in order
+	for(u32 i = 0; i < 65535; i++){
+		for(u32 j = 0; j < character_list().count(); j++){
+			Data character;
+			character.refer_to(&character_list().at(j), sizeof(sg_font_char_t));
+			if( character_list().at(j).id == i ){
+				printer().message("write character %c %d", character_list().at(j).id, character_list().at(j).id);
+				if( font_file.write(character) != character.size() ){
+					printer().error("failed to write kerning pair");
+					return -1;
+				}
+				break;
+			}
 		}
 	}
 
-	if( font_file.write(master_canvas) != master_canvas.size() ){
-		printer().error("Failed to write master canvas");
-		return -1;
+
+	for(u32 i=0; i < master_canvas_list.count(); i++){
+		printer().message("Write canvas to file %d %d", master_canvas_list.at(i).size(), master_canvas_list.at(i).calculate_size());
+		if( font_file.write(master_canvas_list.at(i)) != master_canvas_list.at(i).size() ){
+			printer().error("Failed to write master canvas %d", i);
+			return -1;
+		}
 	}
 
 	font_file.close();

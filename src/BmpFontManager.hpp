@@ -18,6 +18,8 @@ public:
 
 	int generate_font_file(const ConstString & destination);
 
+	void set_is_ascii(bool value = true){ m_is_ascii = true; }
+
 	Vector<sg_font_char_t> & character_list(){ return m_character_list; }
 	const Vector<sg_font_char_t> & character_list() const { return m_character_list; }
 
@@ -76,7 +78,7 @@ private:
 
 	Region find_space_on_canvas(Bitmap & canvas, Dim dimensions);
 
-
+	bool m_is_ascii;
 	Vector<sg_font_char_t> m_character_list;
 	Vector<sg_font_kerning_pair_t> m_kerning_pair_list;
 	Vector<Bitmap> m_bitmap_list;

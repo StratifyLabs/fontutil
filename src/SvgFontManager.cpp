@@ -108,7 +108,7 @@ int SvgFontManager::convert_file(const ConstString & path){
 	if( suffix != String::npos ){
 		output_name.erase(suffix);
 	}
-	output_name << String().format("-%d.sbf", m_point_size);
+	output_name << String().format("-%d.sbf", m_point_size / m_downsample.height());
 	m_bmp_font_manager.generate_font_file(output_name);
 
 
@@ -157,9 +157,12 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 		} else {
 			kerning_sign = 1;
 		}
-		s16 mapped_kerning = specified_kerning * m_scale; //kerning value in mapped vector space -- needs to be converted to bitmap distance
+
 
 		//create a map to move the kerning value to bitmap distance
+#if 0
+		s16 mapped_kerning = specified_kerning * m_scale; //kerning value in mapped vector space -- needs to be converted to bitmap distance
+
 		VectorMap map;
 		Region region(Point(), m_canvas_dimensions);
 		map.calculate_for_region(region);
@@ -169,10 +172,13 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 		kerning_point.map(map);
 
 		kerning_point -= region.center();
-
-		kerning_pair.horizontal_kerning = kerning_point.x() * kerning_sign; //needs to be mapped to canvas size
+#else
+		sg_size_t mapped_kerning = map_svg_value_to_bitmap(specified_kerning);
+#endif
+		kerning_pair.horizontal_kerning = mapped_kerning * kerning_sign; //needs to be mapped to canvas size
 
 		printer().message("kerning %c %c %d -> %d", kerning_pair.unicode_first, kerning_pair.unicode_second, specified_kerning, kerning_pair.horizontal_kerning);
+
 		m_bmp_font_manager.kerning_pair_list().push_back(kerning_pair);
 
 	} else {
@@ -181,6 +187,25 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 
 
 	return 1;
+}
+
+sg_size_t SvgFontManager::map_svg_value_to_bitmap(u32 value){
+	s16 mapped_value = value * m_scale; //kerning value in mapped vector space -- needs to be converted to bitmap distance
+
+	//create a map to move the kerning value to bitmap distance
+	VectorMap map;
+	Region region(Point(), m_canvas_dimensions);
+	map.calculate_for_region(region);
+
+	Point point(mapped_value, 0);
+
+	point.map(map);
+
+	point -= region.center();
+
+	return point.x();
+
+	//kerning_pair.horizontal_kerning = kerning_point.x() * kerning_sign; //needs to be mapped to canvas size
 }
 
 int SvgFontManager::process_glyph(const JsonObject & glyph){
@@ -319,35 +344,43 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 		Bitmap active_canvas(active_region.dim());
 		active_canvas.draw_sub_bitmap(sg_point(0,0), canvas, active_region);
 
+		Dim downsampled;
+		downsampled.set_width( (active_canvas.width() + m_downsample.width()/2) / m_downsample.width() );
+		downsampled.set_height( (active_canvas.height() + m_downsample.height()/2) / m_downsample.height() );
+		Bitmap active_canvas_downsampled(downsampled);
+
+
+		active_canvas_downsampled.clear();
+		active_canvas_downsampled.downsample_bitmap(active_canvas, m_downsample);
 
 		//find region inhabited by character
 
 		sg_font_char_t character;
 
 		character.id = ascii_value; //unicode value
-		character.advance_x = x_advance.to_integer(); //value from SVG file
-
+		character.advance_x = map_svg_value_to_bitmap( x_advance.to_integer() ) / m_downsample.width(); //value from SVG file -- needs to translate to bitmap
 
 		//derive width, height, offset_x, offset_y from image
 		//for offset_x and offset_y what is the standard?
 
-		character.width = active_canvas.width(); //width of bitmap
-		character.height = active_canvas.height(); //height of the bitmap
-		character.offset_x = active_region.point().x() - m_canvas_origin.x(); //x offset when drawing the character
-		character.offset_y = active_region.point().y(); //y offset when drawing the character
+		character.width = active_canvas_downsampled.width(); //width of bitmap
+		character.height = active_canvas_downsampled.height(); //height of the bitmap
+		character.offset_x = (active_region.point().x() - m_canvas_origin.x()) / m_downsample.width(); //x offset when drawing the character
+		character.offset_y = active_region.point().y() / m_downsample.height(); //y offset when drawing the character
 
 		//add character to master canvas, canvas_x and canvas_y are location on the master canvas
 		character.canvas_x = 0; //x location on master canvas -- set when font is generated
 		character.canvas_y = 0; //y location on master canvas -- set when font is generated
 
 		m_bmp_font_manager.character_list().push_back(character);
-		m_bmp_font_manager.bitmap_list().push_back(active_canvas);
+		m_bmp_font_manager.bitmap_list().push_back(active_canvas_downsampled);
 
 #if !SHOW_ORIGIN
 		if( m_is_show_canvas ){
 			printer().open_object(String().format("active character-%s", unicode.cstring()));
 			printer() << active_region;
 			printer() << active_canvas;
+			printer() << active_canvas_downsampled;
 			printer().close_object();
 		}
 #endif

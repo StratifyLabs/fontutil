@@ -64,6 +64,22 @@ int main(int argc, char * argv[]){
 		bmp_font.convert_directory(path, overwrite, verbose);
 	} else if( cli.is_option("-svg") ){
 		SvgFontManager svg_font;
+		Dim downsample(1,1);
+
+		if( cli.is_option("-downsample") ){
+			downsample.set_width( cli.get_option_value("-downsample") );
+			downsample.set_height( downsample.width() );
+		}
+
+		if( cli.is_option("-downsample_width") ){
+			downsample.set_width( cli.get_option_value("-downsample_width") );
+		}
+
+		if( cli.is_option("-downsample_height") ){
+			downsample.set_height( cli.get_option_value("-downsample_height") );
+		}
+
+		svg_font.set_downsample_factor(downsample);
 		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
 		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
 		if( cli.is_option("-character_set") ){

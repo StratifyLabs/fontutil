@@ -106,7 +106,7 @@ int BmpFontManager::load_font_from_bmp_files(const ConstString & def_file, const
 	header.max_word_width = Bitmap::calc_word_width(max_width);
 	header.max_height = max_height;
 	header.version = SG_VERSION;
-	header.bits_per_pixel = Bitmap::bits_per_pixel();
+	header.bits_per_pixel = 1;
 
 	header.canvas_width = header.max_word_width*32/canvas.bits_per_pixel()*3; //make the canvas eight times wider for efficiency
 	header.canvas_height = header.max_height*3;
@@ -321,6 +321,11 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	header.size = sizeof(header) + header.character_count*sizeof(sg_font_char_t) + header.kerning_pair_count*sizeof(sg_font_kerning_pair_t);
 	header.canvas_width = header.max_word_width*2*32;
 	header.canvas_height = header.max_height*3/2;
+	header.bits_per_pixel = 1;
+
+	if( master_canvas.set_bits_per_pixel(header.bits_per_pixel) < 0 ){
+		printer().error("sgfx does not support %d bits per pixel", header.bits_per_pixel);
+	}
 
 	printer().key("max word width", "%d", header.max_word_width);
 	printer().key("area", "%d", area);
@@ -329,7 +334,6 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 
 	printer().key("master width", "%d", master_dim.width());
 	printer().key("master height", "%d", master_dim.height());
-
 
 	Vector<Bitmap> master_canvas_list;
 
@@ -347,29 +351,31 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	for(u32 i = 0; i < character_list().count(); i++){
 		//find a place for the character on the master bitmap
 		Region region;
+		Dim character_dim(character_list().at(i).width, character_list().at(i).height);
 
-		printer().message("find space for %c %dx%d", character_list().at(i).id,
-								character_list().at(i).width, character_list().at(i).height);
-		do {
+		printer().message("find space for %c %dx%d", character_list().at(i).id, character_list().at(i).width, character_list().at(i).height);
+		if( character_dim.width() && character_dim.height() ){
+			do {
 
-			for(u32 j = 0; j < master_canvas_list.count(); j++){
-				region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).dim());
-				if( region.is_valid() ){
-					character_list().at(i).canvas_x = region.x();
-					character_list().at(i).canvas_y = region.y();
-					character_list().at(i).canvas_idx = j;
-					break;
+				for(u32 j = 0; j < master_canvas_list.count(); j++){
+					region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).dim());
+					if( region.is_valid() ){
+						character_list().at(i).canvas_x = region.x();
+						character_list().at(i).canvas_y = region.y();
+						character_list().at(i).canvas_idx = j;
+						break;
+					}
 				}
-			}
 
-			if( region.is_valid() == false ){
-				if( master_canvas_list.push_back(master_canvas) < 0 ){
-					printer().error("failed to add additional canvas");
-					return -1;
+				if( region.is_valid() == false ){
+					if( master_canvas_list.push_back(master_canvas) < 0 ){
+						printer().error("failed to add additional canvas");
+						return -1;
+					}
 				}
-			}
 
-		} while( !region.is_valid() );
+			} while( !region.is_valid() );
+		}
 	}
 
 	for(u32 i = 0; i < character_list().count(); i++){

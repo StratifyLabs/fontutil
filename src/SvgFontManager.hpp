@@ -34,11 +34,16 @@ public:
 		m_bmp_font_manager.set_is_ascii(false);
 	}
 
+	void set_downsample_factor(const Dim & dim){
+		m_downsample = dim;
+	}
+
 private:
 
 	BmpFontManager m_bmp_font_manager; //used for exporting to bmp
 
 	u16 m_canvas_size;
+	Dim m_downsample;
 	Dim m_canvas_dimensions;
 	Point m_canvas_origin;
 	u16 m_pour_grid_size;
@@ -110,6 +115,8 @@ private:
 
 	int process_glyph(const JsonObject & glyph);
 	int process_hkern(const JsonObject & kerning);
+
+	sg_size_t map_svg_value_to_bitmap(u32 value);
 
 
 };

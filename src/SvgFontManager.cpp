@@ -10,24 +10,6 @@
 #include <sapi/sgfx.hpp>
 #include "SvgFontManager.hpp"
 
-void sg_point_unmap(Point & d, const sg_vector_map_t & m){
-	d.rotate((SG_TRIG_POINTS - m.rotation) % SG_TRIG_POINTS);
-	//api::SgfxObject::api()->point_rotate(d, (SG_TRIG_POINTS - m->rotation) % SG_TRIG_POINTS);
-	//map to the space
-	s32 tmp_x;
-	s32 tmp_y;
-	//x' = m->region.point.x + ((x + SG_MAX) * m->region.dim.width) / (SG_MAX-SG_MIN);
-	//y' = m->region.point.y + ((y + SG_MAX) * m->region.dim.height) / (SG_MAX-SG_MIN);
-
-	//(x' - m->region.point.x)*(SG_MAX-SG_MIN)/ m->region.dim.width - SG_MAX = x
-	//printer().message("%d - %d * %d / %d", d->x, m->region.point.x, (SG_MAX-SG_MIN), m->region.dim.width);
-	tmp_x = ((d.x() - m.region.point.x)*(SG_MAX-SG_MIN) + m.region.dim.width/2) / m.region.dim.width;
-	tmp_y = ((d.y() - m.region.point.y)*(SG_MAX-SG_MIN) + m.region.dim.height/2) / m.region.dim.height;
-
-	d.set(tmp_x - SG_MAX, tmp_y - SG_MAX);
-
-}
-
 SvgFontManager::SvgFontManager() {
 	// TODO Auto-generated constructor stub
 	m_scale = 0.0f;
@@ -38,11 +20,10 @@ SvgFontManager::SvgFontManager() {
 }
 
 
-int SvgFontManager::process_svg_icon_file(const ConstString & path){
-	u32 j;
+int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
 
 	JsonDocument json_document;
-	JsonObject top = json_document.load_from_file(path).to_object();
+	JsonObject top = json_document.load_from_file(source_json).to_object();
 	String file_type = top.at("name").to_string();
 
 	printer().open_object("svg.convert");
@@ -54,109 +35,43 @@ int SvgFontManager::process_svg_icon_file(const ConstString & path){
 	}
 
 	JsonObject entry = top.at("childs").to_array().at(0).to_object();
-
-
 	printer().message("entry: %s", entry.at("name").to_string().str());
-
 
 	String value;
 	JsonObject attributes = top.at("attrs").to_object();
 	value = attributes.at("viewBox").to_string();
 	printer().message("bbox: %s", value.str());
-	m_scale = (SG_MAP_MAX*1700UL) / (512);
+
+	Region bounds;
+	Dim canvas_dimensions;
 
 	if( value.is_empty() == false ){
-		parse_bounds(value.cstring(), 512);
-		printer().open_object("SVG bounds");
-		printer() << m_bounds;
-		printer() << m_canvas_dimensions;
-		printer().close_object();
+		bounds = parse_bounds(value.cstring());
+		canvas_dimensions = calculate_canvas_dimension(bounds, m_canvas_size);
+		printer().open_object("SVG bounds") << bounds << printer().close();
+		printer().open_object("Canvas Dimensions") << canvas_dimensions << printer().close();
 	} else {
 		printer().warning("Failed to find bounding box");
+		return -1;
 	}
 
+	m_scale = ( SG_MAP_MAX * 1.0f ) / (bounds.dim().maximum_dimension());
+	printer().message("Scaling factor is %0.2f", m_scale);
 
 	//d is the path
 	String name = entry.at("name").to_string();
 	if( name == "path" ){
 		JsonObject glyph = entry.at("attrs").to_object();
-
 		String drawing_path;
-		Bitmap canvas;
 		drawing_path = glyph.at("d").to_string();
 		if( drawing_path != "<invalid>" ){
 			printer().message("Read value:%s", drawing_path.cstring());
-			if( parse_svg_path(drawing_path.cstring()) < 0 ){
-				printer().error("failed to parse svg path");
-				printer().close_object();
-				return -1;
-			}
 
-			canvas.allocate(Dim(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4));
-			canvas.set_margin_left(2);
-			canvas.set_margin_right(2);
-			canvas.set_margin_top(2);
-			canvas.set_margin_bottom(2);
+			Bitmap canvas;
+			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, canvas_dimensions, m_pour_grid_size);
 
-			canvas.set_pen(Pen(1,1));
-			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
-			VectorMap map(canvas);
-			Bitmap fill(canvas.dim());
-
-			printer().message("%d elements", m_object);
-
-			sg_vector_path_t vector_path;
-			vector_path.icon.count = m_object;
-			vector_path.icon.list = m_path_description_list;
-			vector_path.region = canvas.get_viewable_region();
-
-
-			canvas.clear();
-
-			map.set_rotation(0);
-			sgfx::Vector::draw_path(canvas, vector_path, map);
-
-			//analyze_icon(canvas, vector_path, map, true);
-
-			//find_all_fill_points(canvas, fill, canvas.get_viewable_region(), m_pour_grid_size);
-
-#if 0
-			var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
-			for(u32 i=0; i < fill_points.count(); i++){
-				Point pour_point;
-				pour_point = fill_points.at(i);
-				sg_point_unmap(pour_point, map);
-				if( m_object < PATH_DESCRIPTION_MAX ){
-					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
-					m_object++;
-				} else {
-					printer().message("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST");
-				}
-			}
-#endif
-
-			//if entire display is poured, there is a rogue fill point
-
-			//save the character to the output file
-
-			canvas.clear();
-
-			printer().message("Draw final");
-			vector_path.icon.count = m_object;
-			sgfx::Vector::draw_path(canvas, vector_path, map);
-			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
+			printer().open_object("canvas size") << canvas.dim() << printer().close();
 			printer() << canvas;
-
-#if SHOW_ORIGIN
-			canvas.draw_line(Point(m_canvas_origin.x(), 0), Point(m_canvas_origin.x(), canvas.y_max()));
-			canvas.draw_line(Point(0, m_canvas_origin.y()), Point(canvas.x_max(), m_canvas_origin.y()));
-
-			if( m_is_show_canvas ){
-				printer().open_object(String().format("character-%s", unicode.cstring()));
-				printer() << canvas;
-				printer().close_object();
-			}
-#endif
 		}
 
 	} else {
@@ -203,14 +118,14 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	printer().message("fontStretch: %s", attributes.at("fontStretch").to_string().str());
 	u16 units_per_em = attributes.at("unitsPerEm").to_string().to_integer();
 
-	m_scale = (SG_MAP_MAX*1700UL) / (units_per_em*1000);
+	m_scale = (SG_MAP_MAX*1.7f) / (units_per_em);
 
 	String value;
 	value = attributes.at("bbox").to_string();
 	printer().message("bbox: %s", value.str());
 
 	if( value.is_empty() == false ){
-		parse_bounds(value.cstring(), units_per_em);
+		parse_bounds(value.cstring());
 		printer().open_object("SVG bounds");
 		printer() << m_bounds;
 		printer().close_object();
@@ -445,7 +360,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 			for(u32 i=0; i < fill_points.count(); i++){
 				Point pour_point;
 				pour_point = fill_points.at(i);
-				sg_point_unmap(pour_point, map);
+				pour_point.unmap(map);
 				if( m_object < PATH_DESCRIPTION_MAX ){
 					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
 					m_object++;
@@ -541,107 +456,45 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 }
 
-void SvgFontManager::analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck){
-	Region region = sgfx::Vector::find_active_region(bitmap);
-	Region target;
-	sg_size_t width = bitmap.width() - bitmap.margin_left() - bitmap.margin_right();
-	sg_point_t map_shift;
-	sg_point_t bitmap_shift;
-
-	target.set_point(Point(0, 0));
-	target.set_dim(Dim(width, width));
-
+void SvgFontManager::fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_path, const VectorMap & map, bool recheck){
+	Region region = bitmap.calculate_active_region();
+	Point map_shift;
+	Point bitmap_shift;
+	float map_scale, width_scale, height_scale;
 
 	printer().open_object("active region");
 	printer() << region;
 	printer().close_object();
 
-	printer().open_object("target region");
-	printer() << region;
-	printer().close_object();
+	bitmap_shift = Point(bitmap.width()/2 - region.dim().width()/2 - region.point().x(),
+								bitmap.height()/2 - region.dim().height()/2 - region.point().y());
+	printer().message("Offset Error is %d,%d", bitmap_shift.x(), bitmap_shift.y());
 
-	bitmap_shift.x = (bitmap.width()/2 - region.dim().width()/2) - region.point().x();
-	bitmap_shift.y = (bitmap.width()/2 - region.dim().height()/2) - region.point().y();
-	printer().message("Offset Error is %d,%d", bitmap_shift.x, bitmap_shift.y);
+	width_scale = bitmap.width() * 1.0f / region.dim().width();
+	height_scale = bitmap.height() * 1.0f / region.dim().height();
+	map_scale = (width_scale < height_scale ? width_scale : height_scale) * 0.99f;
+	printer().message("scale %0.2f", map_scale);
 
 	Region map_region = map.region();
-	map_shift.x = (bitmap_shift.x * SG_MAX*2 + map_region.dim().width()/2) / map_region.dim().width();
-	map_shift.y = (bitmap_shift.y * SG_MAX*2 + map_region.dim().height()/2) / map_region.dim().height();
+	map_shift = Point(((s32)bitmap_shift.x() * SG_MAX*2 + map_region.dim().width()/2) / map_region.dim().width(),
+							((s32)bitmap_shift.y() * SG_MAX*2 + map_region.dim().height()/2) / map_region.dim().height() * -1);
 
-	printer().message("Map Shift is %d,%d", map_shift.x, map_shift.y);
+	printer().message("Map Shift is %d,%d", map_shift.x(), map_shift.y());
 
 	if( recheck ){
-		shift_icon(vector_path.icon, map_shift);
+		vector_path += map_shift;
+		vector_path *= map_scale;
 
 		bitmap.clear();
 
 		sgfx::Vector::draw_path(bitmap, vector_path, map);
 
-		bitmap.refresh();
-
-		analyze_icon(bitmap, vector_path, map, false);
+		fit_icon_to_canvas(bitmap, vector_path, map, false);
 	}
 
 	//bitmap.draw_rectangle(region.point(), region.dim());
 }
 
-void SvgFontManager::shift_icon(sg_vector_path_icon_t & icon, Point shift){
-	u32 i;
-	for(i=0; i < icon.count; i++){
-		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
-		switch(description->type){
-			case SG_VECTOR_PATH_MOVE:
-				description->move.point = Point(description->move.point) + shift;
-				break;
-			case SG_VECTOR_PATH_LINE:
-				description->line.point = Point(description->line.point) + shift;
-				break;
-			case SG_VECTOR_PATH_POUR:
-				description->pour.point = Point(description->pour.point) + shift;
-				break;
-			case SG_VECTOR_PATH_QUADRATIC_BEZIER:
-				description->quadratic_bezier.control = Point(description->quadratic_bezier.control) + shift;
-				description->quadratic_bezier.point = Point(description->quadratic_bezier.point) + shift;
-				break;
-			case SG_VECTOR_PATH_CUBIC_BEZIER:
-				description->cubic_bezier.control[0] = Point(description->cubic_bezier.control[0]) + shift;
-				description->cubic_bezier.control[1] = Point(description->cubic_bezier.control[1]) + shift;
-				description->cubic_bezier.point = Point(description->cubic_bezier.point) + shift;
-				break;
-			case SG_VECTOR_PATH_CLOSE:
-				break;
-		}
-	}
-}
-
-void SvgFontManager::scale_icon(sg_vector_path_icon_t & icon, float scale){
-	u32 i;
-	for(i=0; i < icon.count; i++){
-		sg_vector_path_description_t * description = (sg_vector_path_description_t *)icon.list + i;
-		switch(description->type){
-			case SG_VECTOR_PATH_MOVE:
-				description->move.point = Point(description->move.point) * scale;
-				break;
-			case SG_VECTOR_PATH_LINE:
-				description->line.point = Point(description->line.point) * scale;
-				break;
-			case SG_VECTOR_PATH_POUR:
-				description->pour.point = Point(description->pour.point) * scale;
-				break;
-			case SG_VECTOR_PATH_QUADRATIC_BEZIER:
-				description->quadratic_bezier.control = Point(description->quadratic_bezier.control) * scale;
-				description->quadratic_bezier.point = Point(description->quadratic_bezier.point) * scale;
-				break;
-			case SG_VECTOR_PATH_CUBIC_BEZIER:
-				description->cubic_bezier.control[0] = Point(description->cubic_bezier.control[0]) * scale;
-				description->cubic_bezier.control[1] = Point(description->cubic_bezier.control[1]) * scale;
-				description->cubic_bezier.point = Point(description->cubic_bezier.point) * scale;
-				break;
-			case SG_VECTOR_PATH_CLOSE:
-				break;
-		}
-	}
-}
 
 
 
@@ -666,10 +519,16 @@ int SvgFontManager::parse_svg_path(const char * d){
 	do {
 
 		//what is the next command
+		printer().message("Parse command char %c", d[i]);
 		if( is_command_char(d[i]) ){
 			ret = -1;
 			command_char = d[i];
 			i++;
+			if( is_command_char(command_char) ){
+				m_last_command_character = command_char;
+			} else {
+				command_char = m_last_command_character;
+			}
 			switch(command_char){
 				case 'M':
 					ret = parse_path_moveto_absolute(d+i);
@@ -752,14 +611,8 @@ int SvgFontManager::parse_svg_path(const char * d){
 }
 
 bool SvgFontManager::is_command_char(char c){
-	int i;
-	int len = strlen(path_commands());
-	for(i=0; i < len; i++){
-		if( c == path_commands()[i] ){
-			return true;
-		}
-	}
-	return false;
+
+	return path_commands().find(c) != String::npos;
 }
 
 Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
@@ -773,13 +626,34 @@ Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
 
 	//scale
 	temp_x = temp_x * m_scale;
-	temp_y = temp_y * m_scale *-1.0f;
+	temp_y = temp_y * m_scale * -1.0f;
 
 	if( is_absolute ){
 		//shift
 		temp_x = temp_x - SG_MAP_MAX/2.0f;
 		temp_y = temp_y + SG_MAP_MAX/2.0f;
 	}
+
+	if( temp_x > SG_MAP_MAX ){
+		printf("Can't map this point");
+		exit(1);
+	}
+
+	if( temp_y > SG_MAP_MAX ){
+		printf("Can't map this point");
+		exit(1);
+	}
+
+	if( temp_x < -1*SG_MAP_MAX ){
+		printf("Can't map this point");
+		exit(1);
+	}
+
+	if( temp_y < -1*SG_MAP_MAX ){
+		printf("Can't map this point");
+		exit(1);
+	}
+
 
 	point.x = rintf(temp_x);
 	point.y = rintf(temp_y);
@@ -796,22 +670,21 @@ int SvgFontManager::seek_path_command(const char * path){
 	return i;
 }
 
-int SvgFontManager::parse_bounds(const char * value, u32 unit_per_em){
-	float values[4];
+Region SvgFontManager::parse_bounds(const ConstString & value){
+	Region result;
+	Token bounds_tokens(value, " ");
 
+	result << Point(roundf(bounds_tokens.at(0).to_float()), roundf(bounds_tokens.at(1).to_float()));
+	result << Dim(roundf(bounds_tokens.at(2).to_float()) - m_bounds.point().x(), roundf(bounds_tokens.at(3).to_float()) - result.point().y());
+
+	return result;
+
+#if 0
 	Dim canvas_dimensions;
-	if( parse_number_arguments(value, values, 4) != 4 ){
-		return -1;
-	}
-	m_bounds << Point(roundf(values[0]), roundf(values[1]));
-	m_bounds << Dim(roundf(values[2]) - m_bounds.point().x() + 1, roundf(values[3]) - m_bounds.point().y() + 1);
-
 	//how do bounds aspect ratio map to canvas size
-	canvas_dimensions = m_bounds.dim();
+	canvas_dimensions = result.dim();
 
-	sg_size_t max_dimension = canvas_dimensions.width() > canvas_dimensions.height() ? canvas_dimensions.width() : canvas_dimensions.height();
-
-	float scale = 1.0f * m_canvas_size / max_dimension;
+	float scale = 1.0f * m_canvas_size / canvas_dimensions.maximum_dimension();
 
 	m_canvas_dimensions = canvas_dimensions * scale;
 
@@ -821,6 +694,23 @@ int SvgFontManager::parse_bounds(const char * value, u32 unit_per_em){
 	m_point_size = unit_per_em * scale;
 
 	return 0;
+#endif
+}
+
+Dim SvgFontManager::calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size){
+	float scale = 1.0f * canvas_size / bounds.dim().maximum_dimension();
+	printer().message("scale:%f %d %d\n", scale, canvas_size, bounds.dim().maximum_dimension());
+	return bounds.dim() * scale;
+}
+
+Point SvgFontManager::calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions){
+	return Point(bounds.point().x()* -1 * canvas_dimensions.width() / (bounds.dim().width()),
+					 (bounds.dim().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.dim().height()) );
+}
+
+sg_size_t SvgFontManager::calculate_canvas_point_size(const Region & bounds, sg_size_t canvas_size, u32 units_per_em){
+	float scale = 1.0f * canvas_size / bounds.dim().maximum_dimension();
+	return units_per_em * scale;
 }
 
 int SvgFontManager::parse_number_arguments(const char * path, float * dest, u32 n){
@@ -1168,8 +1058,8 @@ int SvgFontManager::parse_path_cubic_bezier_short_relative(const char * path){
 	}
 
 	p[0].set(2*m_current_point.x() - m_control_point.x(), 2*m_current_point.y() - m_control_point.y());
-	p[1] = m_current_point + convert_svg_coord(values[0], values[1]);
-	p[2] = m_current_point + convert_svg_coord(values[2], values[3]);
+	p[1] = m_current_point + convert_svg_coord(values[0], values[1], false);
+	p[2] = m_current_point + convert_svg_coord(values[2], values[3], false);
 
 	m_path_description_list[m_object] = sgfx::Vector::get_path_cubic_bezier(p[0], p[1], p[2]);
 	m_object++;
@@ -1343,6 +1233,445 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 
 	return true;
 
+}
+
+var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size){
+	var::Vector<sg_vector_path_description_t> elements;
+
+	elements = process_svg_path(d);
+	if( elements.count() > 0 ){
+		canvas.allocate(canvas_dimensions);
+
+		canvas.set_pen(Pen(1,1));
+		VectorMap map(canvas);
+		Bitmap fill(canvas.dim());
+
+
+		sgfx::VectorPath vector_path;
+		vector_path << elements << canvas.get_viewable_region();
+
+		canvas.clear();
+
+		map.set_rotation(0);
+		sgfx::Vector::draw_path(canvas, vector_path, map);
+
+		fit_icon_to_canvas(canvas, vector_path, map, true);
+
+		printer().open_object("viewable canvas") << canvas.get_viewable_region() << printer().close();
+		find_all_fill_points(canvas, fill, canvas.get_viewable_region(), grid_size);
+
+		var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
+		printer().message("%d fill points", fill_points.count());
+		for(u32 i=0; i < fill_points.count(); i++){
+			Point pour_point;
+			pour_point = fill_points.at(i);
+			pour_point.unmap(map);
+			printer().message("add pour point");
+			elements.push_back(sgfx::Vector::get_path_pour(pour_point));
+		}
+
+		vector_path << elements << canvas.get_viewable_region();
+		canvas.clear();
+		sgfx::Vector::draw_path(canvas, vector_path, map);
+		Region active_region = canvas.calculate_active_region();
+		printer() << vector_path;
+
+		Bitmap active_bitmap( active_region.dim() );
+		active_bitmap.clear();
+		active_bitmap.draw_sub_bitmap(Point(), canvas, active_region);
+
+		//canvas = active_bitmap;
+
+		//The vector path needs to be adjusted so that the active region fills the entire vector space
+
+		//analyze_icon(canvas, vector_path, map, true);
+
+
+	}
+
+	return elements;
+}
+
+
+var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const ConstString & path){
+	String modified_path;
+	bool is_command;
+	for(u32 i=0; i < path.length(); i++){
+		is_command = path_commands_sign().find(path.at(i)) != String::npos;
+
+		if( (path.at(i) == '-' &&
+			  (path_commands().find(path.at(i-1)) == String::npos)) ||
+			 path.at(i) != '-'){
+			if( is_command ){ modified_path << " "; }
+		}
+		//- should have a space between numbers but not commands
+		modified_path << path.at(i);
+		//if( is_command ){ modified_path << " "; }
+	}
+
+
+	printer().message("modified path %s", modified_path.cstring());
+	var::Vector<sg_vector_path_description_t> result;
+	Token path_tokens(modified_path, " \n\t\r");
+	u32 i = 0;
+	char command_char = 0;
+	Point current_point, control_point;
+	while(i < path_tokens.count()){
+		JsonObject object;
+		float arg;
+		float x,y,x1,y1,x2,y2;
+		Point p;
+		Point points[3];
+		if( is_command_char(path_tokens.at(i).at(0)) ){
+			command_char = path_tokens.at(i).at(0);
+			if( path_tokens.at(i).length() > 1 ){
+				String scan_string;
+				scan_string.format("%c%%f", command_char, &arg);
+				sscanf(path_tokens.at(i++).cstring(), scan_string.cstring(), &arg);
+			}
+		} else {
+			printer().message("Repeat of %c", command_char);
+			arg = path_tokens.at(i++).to_float();
+		}
+
+
+		switch(command_char){
+			case 'M':
+				//ret = parse_path_moveto_absolute(d+i);
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+				current_point = convert_svg_coord(x, y);
+				result.push_back(sgfx::Vector::get_path_move(current_point));
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'm':
+				//ret = parse_path_moveto_relative(d+i);
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+				current_point += convert_svg_coord(x, y, false);
+				result.push_back(sgfx::Vector::get_path_move(current_point));
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'L':
+				//ret = parse_path_lineto_absolute(d+i);
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+				p = convert_svg_coord(x, y);
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'l':
+				//ret = parse_path_lineto_relative(d+i);
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+				p = convert_svg_coord(x, y, false);
+				printer() << p << current_point;
+				p += current_point;
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				printer() << sgfx::Vector::get_path_line(p);
+				break;
+			case 'H':
+				//ret = parse_path_horizontal_lineto_absolute(d+i);
+
+				x = arg;
+				p = convert_svg_coord(x, current_point.y());
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'h':
+				//ret = parse_path_horizontal_lineto_relative(d+i);
+
+				x = arg;
+				p = convert_svg_coord(x, 0, false);
+				p.set(p.x() + current_point.x(), current_point.y());
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'V':
+				//ret = parse_path_vertical_lineto_absolute(d+i);
+
+				y = arg;
+				p = convert_svg_coord(0, y);
+				p.set(current_point.x(), p.y());
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'v':
+				//ret = parse_path_vertical_lineto_relative(d+i);
+
+				y = arg;
+				p = convert_svg_coord(0, y, false);
+				p.set(current_point.x(), p.y() + current_point.y());
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'C':
+				//ret = parse_path_cubic_bezier_absolute(d+i);
+
+				x1 = arg;
+				y1 = path_tokens.at(i++).to_float();
+				x2 = path_tokens.at(i++).to_float();
+				y2 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = convert_svg_coord(x1, y1);
+				points[1] = convert_svg_coord(x2, y2);
+				points[2] = convert_svg_coord(x, y);
+
+				result.push_back(sgfx::Vector::get_path_cubic_bezier(points[0], points[1], points[2]));
+				control_point = points[1];
+				current_point = points[2];
+
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x1", JsonReal( arg ));
+				object.insert("y1", JsonReal( y1 ));
+				object.insert("x2", JsonReal( x2 ));
+				object.insert("y2", JsonReal( y2 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'c':
+				//ret = parse_path_cubic_bezier_relative(d+i);
+
+				x1 = arg;
+				y1 = path_tokens.at(i++).to_float();
+				x2 = path_tokens.at(i++).to_float();
+				y2 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = current_point + convert_svg_coord(x1, y1, false);
+				points[1] = current_point + convert_svg_coord(x2, y2, false);
+				points[2] = current_point + convert_svg_coord(x, y, false);
+
+				result.push_back(sgfx::Vector::get_path_cubic_bezier(points[0], points[1], points[2]));
+				control_point = points[1];
+				current_point = points[2];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x1", JsonReal( arg ));
+				object.insert("y1", JsonReal( y1 ));
+				object.insert("x2", JsonReal( x2 ));
+				object.insert("y2", JsonReal( y2 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'S':
+				//ret = parse_path_cubic_bezier_short_absolute(d+i);
+
+				x2 = arg;
+				y2 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = current_point*2 - control_point;
+				points[0].set(2*current_point.x() - control_point.x(), 2*current_point.y() - control_point.y());
+				points[1] = convert_svg_coord(x2, y2);
+				points[2] = convert_svg_coord(x, y);
+
+				result.push_back(sgfx::Vector::get_path_cubic_bezier(points[0], points[1], points[2]));
+
+				control_point = points[1];
+				current_point = points[2];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x2", JsonReal( x2 ));
+				object.insert("y2", JsonReal( y2 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 's':
+				//ret = parse_path_cubic_bezier_short_relative(d+i);
+
+				x2 = arg;
+				y2 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0].set(2*current_point.x() - control_point.x(), 2*current_point.y() - control_point.y());
+				//! \todo should convert_svg_coord be relative??
+				points[1] = current_point + convert_svg_coord(x2, y2, false);
+				points[2] = current_point + convert_svg_coord(x, y, false);
+
+				result.push_back(sgfx::Vector::get_path_cubic_bezier(points[0], points[1], points[2]));
+				control_point = points[1];
+				current_point = points[2];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x2", JsonReal( x2 ));
+				object.insert("y2", JsonReal( y2 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'Q':
+				//ret = parse_path_quadratic_bezier_absolute(d+i);
+
+				x1 = arg;
+				y1 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = convert_svg_coord(x1, y1);
+				points[1] = convert_svg_coord(x, y);
+
+				result.push_back(sgfx::Vector::get_path_quadratic_bezier(points[0], points[1]));
+				control_point = points[0];
+				current_point = points[1];
+
+				m_path_description_list[m_object] = sgfx::Vector::get_path_quadratic_bezier(points[0], points[1]);
+				m_object++;
+
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x1", JsonReal( x1 ));
+				object.insert("y1", JsonReal( y1 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'q':
+				//ret = parse_path_quadratic_bezier_relative(d+i);
+
+				x1 = arg;
+				y1 = path_tokens.at(i++).to_float();
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = current_point + convert_svg_coord(x1, y1, false);
+				points[1] = current_point + convert_svg_coord(x, y, false);
+
+				result.push_back(sgfx::Vector::get_path_quadratic_bezier(points[0], points[1]));
+				control_point = points[0];
+				current_point = points[1];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x1", JsonReal( x1 ));
+				object.insert("y1", JsonReal( y1 ));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 'T':
+				//ret = parse_path_quadratic_bezier_short_absolute(d+i);
+
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+
+				points[0].set(2*current_point.x() - control_point.x(), 2*current_point.y() - control_point.y());
+				points[1] = convert_svg_coord(x, y);
+
+				result.push_back(sgfx::Vector::get_path_quadratic_bezier(points[0], points[1]));
+				control_point = points[0];
+				current_point = points[1];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			case 't':
+				//ret = parse_path_quadratic_bezier_short_relative(d+i);
+
+				x = arg;
+				y = path_tokens.at(i++).to_float();
+
+				points[0] = current_point*2 - control_point;
+
+				points[0].set(2*current_point.x() - control_point.x(), 2*current_point.y() - control_point.y());
+				points[1] = current_point + convert_svg_coord(x, y, false);
+
+				result.push_back(sgfx::Vector::get_path_quadratic_bezier(points[0], points[1]));
+				control_point = points[0];
+				current_point = points[1];
+
+				object.insert("command", JsonInteger(command_char));
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+
+			case 'A':
+				object.insert("command", JsonInteger(command_char));
+				object.insert("rx", JsonReal( arg ));
+				object.insert("ry", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("axis-rotation", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("large-arc-flag", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+
+			case 'a':
+				object.insert("command", JsonInteger(command_char));
+				object.insert("rx", JsonReal( arg ));
+				object.insert("ry", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("axis-rotation", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("large-arc-flag", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
+				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+
+			case 'Z':
+			case 'z':
+				//ret = parse_close_path(d+i);
+
+				result.push_back(sgfx::Vector::get_path_close());
+
+				object.insert("command", JsonInteger(command_char));
+				i++;
+				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				break;
+			default:
+				printer().message("Unhandled command char %c", command_char);
+				return result;
+		}
+	}
+
+	return result;
 }
 
 

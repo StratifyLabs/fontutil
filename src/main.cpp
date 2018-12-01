@@ -92,6 +92,8 @@ int main(int argc, char * argv[]){
 		svg_font.process_svg_font_file(path);
 	} else if( cli.is_option("-icon") ){
 		SvgFontManager svg_font;
+		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
+
 		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
 		svg_font.process_svg_icon_file(path);
 	}

@@ -52,8 +52,9 @@ private:
 
 	int parse_svg_path(const char * d);
 
-	static const char * path_commands_space(){ return "MmCcSsLlHhVvQqTtAaZz \n\t"; }
-	static const char * path_commands(){ return "MmCcSsLlHhVvQqTtAaZz"; }
+	static const ConstString path_commands_sign(){ return "MmCcSsLlHhVvQqTtAaZz-"; }
+	static const ConstString path_commands_space(){ return "MmCcSsLlHhVvQqTtAaZz \n\t"; }
+	static const ConstString path_commands(){ return "MmCcSsLlHhVvQqTtAaZz"; }
 	static bool is_command_char(char c);
 
 	enum {
@@ -63,7 +64,16 @@ private:
 		TOTAL_STATE
 	};
 
-	int parse_bounds(const char * value, u32 units_per_em);
+	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size);
+	var::Vector<sg_vector_path_description_t> process_svg_path(const ConstString & path);
+
+
+
+
+	Region parse_bounds(const ConstString & value);
+	Dim calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size);
+	Point calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions);
+	sg_size_t calculate_canvas_point_size(const Region & bounds, sg_size_t canvas_size, u32 units_per_em);
 
 	int parse_path_moveto_absolute(const char * path);
 	int parse_path_moveto_relative(const char * path);
@@ -89,9 +99,7 @@ private:
 
 	Point convert_svg_coord(float x, float y, bool is_absolute = true);
 
-	void analyze_icon(Bitmap & bitmap, sg_vector_path_t & vector_path, const VectorMap & map, bool recheck);
-	void shift_icon(sg_vector_path_icon_t & icon, Point shift);
-	void scale_icon(sg_vector_path_icon_t & icon, float scale);
+	void fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_path, const VectorMap & map, bool recheck);
 
 	enum {
 		PATH_DESCRIPTION_MAX = 256,
@@ -100,11 +108,13 @@ private:
 	int m_state;
 	Point m_current_point;
 	Point m_control_point;
+	char m_last_command_character;
 	Region m_bounds;
 	float m_scale;
 	u16 m_point_size;
 	int m_object;
 	sg_vector_path_description_t m_path_description_list[PATH_DESCRIPTION_MAX];
+	var::Vector<sg_vector_path_description_t> m_vector_path_icon_list;
 
 	String m_character_set;
 
@@ -118,6 +128,7 @@ private:
 	int process_hkern(const JsonObject & kerning);
 
 	sg_size_t map_svg_value_to_bitmap(u32 value);
+
 
 
 };

@@ -67,34 +67,9 @@ private:
 	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size, bool is_fit_icon);
 	var::Vector<sg_vector_path_description_t> process_svg_path(const ConstString & path);
 
-
-
-
 	Region parse_bounds(const ConstString & value);
 	Dim calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size);
 	Point calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions);
-
-	int parse_path_moveto_absolute(const char * path);
-	int parse_path_moveto_relative(const char * path);
-	int parse_path_lineto_absolute(const char * path);
-	int parse_path_lineto_relative(const char * path);
-	int parse_path_horizontal_lineto_absolute(const char * path);
-	int parse_path_horizontal_lineto_relative(const char * path);
-	int parse_path_vertical_lineto_absolute(const char * path);
-	int parse_path_vertical_lineto_relative(const char * path);
-	int parse_path_quadratic_bezier_absolute(const char * path);
-	int parse_path_quadratic_bezier_relative(const char * path);
-	int parse_path_quadratic_bezier_short_absolute(const char * path);
-	int parse_path_quadratic_bezier_short_relative(const char * path);
-	int parse_path_cubic_bezier_absolute(const char * path);
-	int parse_path_cubic_bezier_relative(const char * path);
-	int parse_path_cubic_bezier_short_absolute(const char * path);
-	int parse_path_cubic_bezier_short_relative(const char * path);
-	int parse_close_path(const char * path);
-
-	int parse_number_arguments(const char * path, float * dest, u32 n);
-
-	int seek_path_command(const char * path);
 
 	Point convert_svg_coord(float x, float y, bool is_absolute = true);
 
@@ -111,8 +86,6 @@ private:
 	Region m_bounds;
 	float m_scale;
 	u16 m_point_size;
-	int m_object;
-	sg_vector_path_description_t m_path_description_list[PATH_DESCRIPTION_MAX];
 	var::Vector<sg_vector_path_description_t> m_vector_path_icon_list;
 
 	String m_character_set;

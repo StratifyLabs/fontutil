@@ -13,7 +13,8 @@ class SvgFontManager : public ApplicationPrinter {
 public:
 	SvgFontManager();
 
-	int convert_file(const ConstString & path);
+	int process_svg_font_file(const ConstString & path);
+	int process_svg_icon_file(const ConstString & path);
 
 	void set_canvas_size(u16 size){
 		m_canvas_size = size;
@@ -107,9 +108,9 @@ private:
 
 	String m_character_set;
 
-	Vector<sg_font_char_t> m_font_character_list;
+	var::Vector<sg_font_char_t> m_font_character_list;
 
-	static Vector<sg_point_t> calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points);
+	static var::Vector<sg_point_t> calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points);
 	static void find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid);
 	static bool is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region);
 

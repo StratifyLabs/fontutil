@@ -20,14 +20,14 @@ public:
 
 	void set_is_ascii(bool value = true){ m_is_ascii = true; }
 
-	Vector<sg_font_char_t> & character_list(){ return m_character_list; }
-	const Vector<sg_font_char_t> & character_list() const { return m_character_list; }
+	var::Vector<sg_font_char_t> & character_list(){ return m_character_list; }
+	const var::Vector<sg_font_char_t> & character_list() const { return m_character_list; }
 
-	Vector<sg_font_kerning_pair_t> & kerning_pair_list(){ return m_kerning_pair_list; }
-	const Vector<sg_font_kerning_pair_t> & kerning_pair_list() const { return m_kerning_pair_list; }
+	var::Vector<sg_font_kerning_pair_t> & kerning_pair_list(){ return m_kerning_pair_list; }
+	const var::Vector<sg_font_kerning_pair_t> & kerning_pair_list() const { return m_kerning_pair_list; }
 
-	Vector<Bitmap> & bitmap_list(){ return m_bitmap_list; }
-	const Vector<Bitmap> & bitmap_list() const { return m_bitmap_list; }
+	var::Vector<Bitmap> & bitmap_list(){ return m_bitmap_list; }
+	const var::Vector<Bitmap> & bitmap_list() const { return m_bitmap_list; }
 
 private:
 
@@ -79,9 +79,9 @@ private:
 	Region find_space_on_canvas(Bitmap & canvas, Dim dimensions);
 
 	bool m_is_ascii;
-	Vector<sg_font_char_t> m_character_list;
-	Vector<sg_font_kerning_pair_t> m_kerning_pair_list;
-	Vector<Bitmap> m_bitmap_list;
+	var::Vector<sg_font_char_t> m_character_list;
+	var::Vector<sg_font_kerning_pair_t> m_kerning_pair_list;
+	var::Vector<Bitmap> m_bitmap_list;
 
 
 };

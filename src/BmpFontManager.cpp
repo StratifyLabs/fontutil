@@ -335,7 +335,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	printer().key("master width", "%d", master_dim.width());
 	printer().key("master height", "%d", master_dim.height());
 
-	Vector<Bitmap> master_canvas_list;
+	var::Vector<Bitmap> master_canvas_list;
 
 	if( master_canvas.allocate(master_dim) < 0 ){
 		printer().error("Failed to allocate memory for master canvas");
@@ -396,7 +396,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	for(u32 i = 0; i < kerning_pair_list().count(); i++){
 		Data kerning_pair;
 		kerning_pair.refer_to(&kerning_pair_list().at(i), sizeof(sg_font_kerning_pair_t));
-		if( font_file.write(kerning_pair) != kerning_pair.size() ){
+		if( font_file.write(kerning_pair) != (int)kerning_pair.size() ){
 			printer().error("failed to write kerning pair");
 			return -1;
 		}
@@ -409,7 +409,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 			character.refer_to(&character_list().at(j), sizeof(sg_font_char_t));
 			if( character_list().at(j).id == i ){
 				printer().message("write character %c %d", character_list().at(j).id, character_list().at(j).id);
-				if( font_file.write(character) != character.size() ){
+				if( font_file.write(character) != (int)character.size() ){
 					printer().error("failed to write kerning pair");
 					return -1;
 				}
@@ -421,7 +421,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 
 	for(u32 i=0; i < master_canvas_list.count(); i++){
 		printer().message("Write canvas to file %d %d", master_canvas_list.at(i).size(), master_canvas_list.at(i).calculate_size());
-		if( font_file.write(master_canvas_list.at(i)) != master_canvas_list.at(i).size() ){
+		if( font_file.write(master_canvas_list.at(i)) != (int)master_canvas_list.at(i).size() ){
 			printer().error("Failed to write master canvas %d", i);
 			return -1;
 		}

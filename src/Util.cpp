@@ -39,7 +39,7 @@ void Util::show_file_font(const ConstString & path){
 
 void Util::show_font(Font & f){
 	Bitmap b;
-	int i;
+	u32 i;
 
 	printf("Alloc bitmap %d x %d\n", f.get_width(), f.get_height());
 	b.allocate(Dim(f.get_width()*8/4, f.get_height()*5/4));
@@ -53,8 +53,11 @@ void Util::show_font(Font & f){
 			string << Font::ascii_character_set().at(i+1);
 		}
 		f.draw(string, b, Point(b.width()/5, 0));
-		printf("\twidth:%d height:%d xadvance:%d\n",
-				f.character().width, f.character().height, f.character().advance_x);
+		printf("\twidth:%d height:%d xadvance:%d offsetx:%d offsety:%d\n",
+				 f.character().width, f.character().height,
+				 f.character().advance_x,
+				 f.character().offset_x,
+				 f.character().offset_y);
 		b.show();
 	}
 }

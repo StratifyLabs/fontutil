@@ -85,7 +85,15 @@ int main(int argc, char * argv[]){
 		if( cli.is_option("-character_set") ){
 			svg_font.set_character_set( cli.get_option_argument("-character_set"));
 		}
-		svg_font.convert_file(path);
+
+		if( cli.is_option("-all") ){
+			svg_font.set_character_set("");
+		}
+		svg_font.process_svg_font_file(path);
+	} else if( cli.is_option("-icon") ){
+		SvgFontManager svg_font;
+		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
+		svg_font.process_svg_icon_file(path);
 	}
 
 	return 0;

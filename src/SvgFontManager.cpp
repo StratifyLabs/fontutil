@@ -38,19 +38,150 @@ SvgFontManager::SvgFontManager() {
 }
 
 
-int SvgFontManager::convert_file(const ConstString & path){
-	int j;
-	int i;
+int SvgFontManager::process_svg_icon_file(const ConstString & path){
+	u32 j;
+
+	JsonDocument json_document;
+	JsonObject top = json_document.load_from_file(path).to_object();
+	String file_type = top.at("name").to_string();
+
+	printer().open_object("svg.convert");
+	printer().message("File type is %s", file_type.cstring());
+
+	if( file_type != "svg" ){
+		printer().error("wrong file type (not svg)");
+		return -1;
+	}
+
+	JsonObject entry = top.at("childs").to_array().at(0).to_object();
+
+
+	printer().message("entry: %s", entry.at("name").to_string().str());
+
+
+	String value;
+	JsonObject attributes = top.at("attrs").to_object();
+	value = attributes.at("viewBox").to_string();
+	printer().message("bbox: %s", value.str());
+	m_scale = (SG_MAP_MAX*1700UL) / (512);
+
+	if( value.is_empty() == false ){
+		parse_bounds(value.cstring(), 512);
+		printer().open_object("SVG bounds");
+		printer() << m_bounds;
+		printer() << m_canvas_dimensions;
+		printer().close_object();
+	} else {
+		printer().warning("Failed to find bounding box");
+	}
+
+
+	//d is the path
+	String name = entry.at("name").to_string();
+	if( name == "path" ){
+		JsonObject glyph = entry.at("attrs").to_object();
+
+		String drawing_path;
+		Bitmap canvas;
+		drawing_path = glyph.at("d").to_string();
+		if( drawing_path != "<invalid>" ){
+			printer().message("Read value:%s", drawing_path.cstring());
+			if( parse_svg_path(drawing_path.cstring()) < 0 ){
+				printer().error("failed to parse svg path");
+				printer().close_object();
+				return -1;
+			}
+
+			canvas.allocate(Dim(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4));
+			canvas.set_margin_left(2);
+			canvas.set_margin_right(2);
+			canvas.set_margin_top(2);
+			canvas.set_margin_bottom(2);
+
+			canvas.set_pen(Pen(1,1));
+			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
+			VectorMap map(canvas);
+			Bitmap fill(canvas.dim());
+
+			printer().message("%d elements", m_object);
+
+			sg_vector_path_t vector_path;
+			vector_path.icon.count = m_object;
+			vector_path.icon.list = m_path_description_list;
+			vector_path.region = canvas.get_viewable_region();
+
+
+			canvas.clear();
+
+			map.set_rotation(0);
+			sgfx::Vector::draw_path(canvas, vector_path, map);
+
+			//analyze_icon(canvas, vector_path, map, true);
+
+			//find_all_fill_points(canvas, fill, canvas.get_viewable_region(), m_pour_grid_size);
+
+#if 0
+			var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
+			for(u32 i=0; i < fill_points.count(); i++){
+				Point pour_point;
+				pour_point = fill_points.at(i);
+				sg_point_unmap(pour_point, map);
+				if( m_object < PATH_DESCRIPTION_MAX ){
+					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
+					m_object++;
+				} else {
+					printer().message("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST");
+				}
+			}
+#endif
+
+			//if entire display is poured, there is a rogue fill point
+
+			//save the character to the output file
+
+			canvas.clear();
+
+			printer().message("Draw final");
+			vector_path.icon.count = m_object;
+			sgfx::Vector::draw_path(canvas, vector_path, map);
+			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
+			printer() << canvas;
+
+#if SHOW_ORIGIN
+			canvas.draw_line(Point(m_canvas_origin.x(), 0), Point(m_canvas_origin.x(), canvas.y_max()));
+			canvas.draw_line(Point(0, m_canvas_origin.y()), Point(canvas.x_max(), m_canvas_origin.y()));
+
+			if( m_is_show_canvas ){
+				printer().open_object(String().format("character-%s", unicode.cstring()));
+				printer() << canvas;
+				printer().close_object();
+			}
+#endif
+		}
+
+	} else {
+		printer().error("can't process %s", name.cstring());
+	}
+
+	return 0;
+}
+
+int SvgFontManager::process_svg_font_file(const ConstString & path){
+	u32 j;
 
 	JsonDocument json_document;
 	JsonArray font_array = json_document.load_from_file(path).to_array();
 	JsonObject top = font_array.at(0).to_object();
+	String file_type = top.at("name").to_string();
+	if( file_type == "<invalid>" ){
+		top = json_document.load_from_file(path).to_object();
+		file_type = top.at("name").to_string();
+	}
 
 	printer().open_object("svg.convert");
+	printer().message("File type is %s", file_type.cstring());
 
-	printer().message("File type is %s", top.at("name").to_string().str());
-
-	if( top.at("name").to_string() != "svg" ){
+	if( file_type != "svg" ){
 		printer().error("wrong file type (not svg)");
 		return -1;
 	}
@@ -190,13 +321,17 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 }
 
 sg_size_t SvgFontManager::map_svg_value_to_bitmap(u32 value){
-	s16 mapped_value = value * m_scale; //kerning value in mapped vector space -- needs to be converted to bitmap distance
 
 	//create a map to move the kerning value to bitmap distance
 	VectorMap map;
 	Region region(Point(), m_canvas_dimensions);
 	map.calculate_for_region(region);
 
+	s16 mapped_value = value * m_scale; //kerning value in mapped vector space -- needs to be converted to bitmap distance
+	if( mapped_value < 0 ){
+		mapped_value = 32767;
+	}
+	printer().message("Mapped value is %d * %f = %d", value, m_scale, mapped_value);
 	Point point(mapped_value, 0);
 
 	point.map(map);
@@ -204,8 +339,6 @@ sg_size_t SvgFontManager::map_svg_value_to_bitmap(u32 value){
 	point -= region.center();
 
 	return point.x();
-
-	//kerning_pair.horizontal_kerning = kerning_point.x() * kerning_sign; //needs to be mapped to canvas size
 }
 
 int SvgFontManager::process_glyph(const JsonObject & glyph){
@@ -215,39 +348,43 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 	u8 ascii_value;
 
 	bool is_in_character_set = false;
-	if( unicode.length() == 1 ){
-		ascii_value = unicode.at(0);
-		if( m_character_set.find(ascii_value) != String::npos ){
-			is_in_character_set = true;
+	if( m_character_set.is_empty() == false ){
+		if( unicode.length() == 1 ){
+			ascii_value = unicode.at(0);
+			if( m_character_set.find(ascii_value) != String::npos ){
+				is_in_character_set = true;
+			}
+		} else {
+			if( glyph_name == "ampersand" ){
+				if( m_character_set.find("&") != String::npos ){
+					ascii_value = '&';
+					is_in_character_set = true;
+				}
+			}
+
+			if( glyph_name == "quotesinglbase" ){
+				if( m_character_set.find("\"") != String::npos ){
+					ascii_value = '"';
+					is_in_character_set = true;
+				}
+			}
+
+			if( glyph_name == "less" ){
+				if( m_character_set.find("\"") != String::npos ){
+					ascii_value = '<';
+					is_in_character_set = true;
+				}
+			}
+
+			if( glyph_name == "greater" ){
+				if( m_character_set.find("\"") != String::npos ){
+					ascii_value = '>';
+					is_in_character_set = true;
+				}
+			}
 		}
 	} else {
-		if( glyph_name == "ampersand" ){
-			if( m_character_set.find("&") != String::npos ){
-				ascii_value = '&';
-				is_in_character_set = true;
-			}
-		}
-
-		if( glyph_name == "quotesinglbase" ){
-			if( m_character_set.find("\"") != String::npos ){
-				ascii_value = '"';
-				is_in_character_set = true;
-			}
-		}
-
-		if( glyph_name == "less" ){
-			if( m_character_set.find("\"") != String::npos ){
-				ascii_value = '<';
-				is_in_character_set = true;
-			}
-		}
-
-		if( glyph_name == "greater" ){
-			if( m_character_set.find("\"") != String::npos ){
-				ascii_value = '>';
-				is_in_character_set = true;
-			}
-		}
+		is_in_character_set = true;
 	}
 
 	if( is_in_character_set ){
@@ -304,7 +441,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 			find_all_fill_points(canvas, fill, canvas.get_viewable_region(), m_pour_grid_size);
 
-			Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
+			var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
 			for(u32 i=0; i < fill_points.count(); i++){
 				Point pour_point;
 				pour_point = fill_points.at(i);
@@ -365,8 +502,10 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 		character.width = active_canvas_downsampled.width(); //width of bitmap
 		character.height = active_canvas_downsampled.height(); //height of the bitmap
-		character.offset_x = (active_region.point().x() - m_canvas_origin.x()) / m_downsample.width(); //x offset when drawing the character
-		character.offset_y = active_region.point().y() / m_downsample.height(); //y offset when drawing the character
+		printer().message("(%d - %d) / %d is offset x", active_region.point().x(), m_canvas_origin.x(), m_downsample.width());
+		character.offset_x = (active_region.point().x() - m_canvas_origin.x() + m_downsample.width()/2) / m_downsample.width(); //x offset when drawing the character
+		printer().message("(%d - %d) / %d is offset x", active_region.point().y(), m_canvas_origin.y(), m_downsample.height());
+		character.offset_y = (active_region.point().y() + m_downsample.height()/2) / m_downsample.height(); //y offset when drawing the character
 
 		//add character to master canvas, canvas_x and canvas_y are location on the master canvas
 		character.canvas_x = 0; //x location on master canvas -- set when font is generated
@@ -378,10 +517,21 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 #if !SHOW_ORIGIN
 		if( m_is_show_canvas ){
 			printer().open_object(String().format("active character-%s", unicode.cstring()));
-			printer() << active_region;
-			printer() << active_canvas;
-			printer() << active_canvas_downsampled;
-			printer().close_object();
+			{
+				printer() << active_region;
+				printer() << active_canvas;
+				printer() << active_canvas_downsampled;
+				printer().open_object("character");
+				{
+					printer().key("advance x", "%d", character.advance_x);
+					printer().key("offset x", "%d", character.offset_x);
+					printer().key("offset y", "%d", character.offset_y);
+					printer().key("width", "%d", character.width);
+					printer().key("height", "%d", character.height);
+					printer().close_object();
+				}
+				printer().close_object();
+			}
 		}
 #endif
 
@@ -1047,11 +1197,10 @@ int SvgFontManager::parse_close_path(const char * path){
 	return seek_path_command(path); //no arguments, cursor doesn't advance
 }
 
-Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points){
+var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points){
 
 	Region region;
-	Vector<sg_point_t> result;
-	int pour_points = 0;
+	var::Vector<sg_point_t> result;
 
 	region = bitmap.get_viewable_region();
 

@@ -65,10 +65,9 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
 		String drawing_path;
 		drawing_path = glyph.at("d").to_string();
 		if( drawing_path != "<invalid>" ){
-			printer().message("Read value:%s", drawing_path.cstring());
 
 			Bitmap canvas;
-			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, canvas_dimensions, m_pour_grid_size);
+			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, canvas_dimensions, m_pour_grid_size, true);
 
 			printer().open_object("canvas size") << canvas.dim() << printer().close();
 			printer() << canvas;
@@ -118,20 +117,23 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	printer().message("fontStretch: %s", attributes.at("fontStretch").to_string().str());
 	u16 units_per_em = attributes.at("unitsPerEm").to_string().to_integer();
 
-	m_scale = (SG_MAP_MAX*1.7f) / (units_per_em);
+	m_scale = (SG_MAP_MAX*1.0f) / (units_per_em);
 
 	String value;
 	value = attributes.at("bbox").to_string();
 	printer().message("bbox: %s", value.str());
 
-	if( value.is_empty() == false ){
-		parse_bounds(value.cstring());
-		printer().open_object("SVG bounds");
-		printer() << m_bounds;
-		printer().close_object();
-	} else {
+	if( value.is_empty() ){
 		printer().warning("Failed to find bounding box");
+		return -1;
 	}
+
+	m_bounds = parse_bounds(value.cstring());
+	m_canvas_dimensions = calculate_canvas_dimension(m_bounds, m_canvas_size);
+	m_canvas_origin = calculate_canvas_origin(m_bounds, m_canvas_dimensions);
+	printer().open_object("SVG bounds") << m_bounds << printer().close();
+
+	m_point_size = 1.0f * m_canvas_dimensions.height() * units_per_em / m_bounds.dim().height() * SG_MAP_MAX / (SG_MAX);
 
 	printer().message("missingGlyph: %s", missing_glyph.at("name").to_string().str());
 	printer().message("Glyph count %ld", glyphs.count());
@@ -157,6 +159,7 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	output_name << String().format("-%d.sbf", m_point_size / m_downsample.height());
 	m_bmp_font_manager.generate_font_file(output_name);
 
+	printer().message("Created %s", output_name.cstring());
 
 	return 0;
 }
@@ -223,8 +226,6 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 #endif
 		kerning_pair.horizontal_kerning = mapped_kerning * kerning_sign; //needs to be mapped to canvas size
 
-		printer().message("kerning %c %c %d -> %d", kerning_pair.unicode_first, kerning_pair.unicode_second, specified_kerning, kerning_pair.horizontal_kerning);
-
 		m_bmp_font_manager.kerning_pair_list().push_back(kerning_pair);
 
 	} else {
@@ -246,7 +247,6 @@ sg_size_t SvgFontManager::map_svg_value_to_bitmap(u32 value){
 	if( mapped_value < 0 ){
 		mapped_value = 32767;
 	}
-	printer().message("Mapped value is %d * %f = %d", value, m_scale, mapped_value);
 	Point point(mapped_value, 0);
 
 	point.map(map);
@@ -314,83 +314,83 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 		String x_advance = glyph.at("horizAdvX").to_string();
 
-		// \todo Add to character info advance_x
-
 		String drawing_path;
-		Bitmap canvas;
 		drawing_path = glyph.at("d").to_string();
-		if( drawing_path != "<invalid>" ){
-			printer().message("Read value:%s", drawing_path.cstring());
-			if( parse_svg_path(drawing_path.cstring()) < 0 ){
-				printer().error("failed to parse svg path");
-				printer().close_object();
-				return -1;
-			}
-
-			canvas.allocate(Dim(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4));
-			canvas.set_margin_left(2);
-			canvas.set_margin_right(2);
-			canvas.set_margin_top(2);
-			canvas.set_margin_bottom(2);
-
-			canvas.set_pen(Pen(1,1));
-			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
-			VectorMap map(canvas);
-			Bitmap fill(canvas.dim());
-
-			printer().message("%d elements", m_object);
-
-			sg_vector_path_t vector_path;
-			vector_path.icon.count = m_object;
-			vector_path.icon.list = m_path_description_list;
-			vector_path.region = canvas.get_viewable_region();
-
-			//Vector::show(icon);
-
-			canvas.clear();
-
-			map.set_rotation(0);
-			sgfx::Vector::draw_path(canvas, vector_path, map);
-
-			//analyze_icon(canvas, vector_path, map, true);
-
-			find_all_fill_points(canvas, fill, canvas.get_viewable_region(), m_pour_grid_size);
-
-			var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
-			for(u32 i=0; i < fill_points.count(); i++){
-				Point pour_point;
-				pour_point = fill_points.at(i);
-				pour_point.unmap(map);
-				if( m_object < PATH_DESCRIPTION_MAX ){
-					m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
-					m_object++;
-				} else {
-					printer().message("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST");
-				}
-			}
-
-			//if entire display is poured, there is a rogue fill point
-
-			//save the character to the output file
-
-			canvas.clear();
-
-			printer().message("Draw final");
-			vector_path.icon.count = m_object;
-			sgfx::Vector::draw_path(canvas, vector_path, map);
-			printer().message("Canvas %dx%d", canvas.width(), canvas.height());
-
-#if SHOW_ORIGIN
-			canvas.draw_line(Point(m_canvas_origin.x(), 0), Point(m_canvas_origin.x(), canvas.y_max()));
-			canvas.draw_line(Point(0, m_canvas_origin.y()), Point(canvas.x_max(), m_canvas_origin.y()));
-
-			if( m_is_show_canvas ){
-				printer().open_object(String().format("character-%s", unicode.cstring()));
-				printer() << canvas;
-				printer().close_object();
-			}
-#endif
+		if( drawing_path == "<invalid>" ){
+			printer().error("drawing path not found");
+			return -1;
 		}
+
+		Bitmap canvas;
+
+		m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, m_canvas_dimensions, m_pour_grid_size, false);
+#if 0
+
+		canvas.allocate(Dim(m_canvas_dimensions.width()+4,m_canvas_dimensions.height()+4));
+		canvas.set_margin_left(2);
+		canvas.set_margin_right(2);
+		canvas.set_margin_top(2);
+		canvas.set_margin_bottom(2);
+
+		canvas.set_pen(Pen(1,1));
+		printer().message("Canvas %dx%d", canvas.width(), canvas.height());
+		VectorMap map(canvas);
+		Bitmap fill(canvas.dim());
+
+		printer().message("%d elements", m_object);
+
+		sg_vector_path_t vector_path;
+		vector_path.icon.count = m_object;
+		vector_path.icon.list = m_path_description_list;
+		vector_path.region = canvas.get_viewable_region();
+
+		//Vector::show(icon);
+
+		canvas.clear();
+
+		map.set_rotation(0);
+		sgfx::Vector::draw_path(canvas, vector_path, map);
+
+		//analyze_icon(canvas, vector_path, map, true);
+
+		find_all_fill_points(canvas, fill, canvas.get_viewable_region(), m_pour_grid_size);
+
+		var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
+		for(u32 i=0; i < fill_points.count(); i++){
+			Point pour_point;
+			pour_point = fill_points.at(i);
+			pour_point.unmap(map);
+			if( m_object < PATH_DESCRIPTION_MAX ){
+				m_path_description_list[m_object] = sgfx::Vector::get_path_pour(pour_point);
+				m_object++;
+			} else {
+				printer().message("FAILED -- NOT ENOUGH ROOM IN DESCRIPTION LIST");
+			}
+		}
+
+		//if entire display is poured, there is a rogue fill point
+
+		//save the character to the output file
+
+		canvas.clear();
+
+		printer().message("Draw final");
+		vector_path.icon.count = m_object;
+		sgfx::Vector::draw_path(canvas, vector_path, map);
+#endif
+
+#if 0
+		printer().open_object("origin") << m_canvas_origin << printer().close();
+		canvas.draw_line( Point(m_canvas_origin.x(), 0), Point(m_canvas_origin.x(), canvas.y_max()));
+		canvas.draw_line(Point(0, m_canvas_origin.y()), Point(canvas.x_max(), m_canvas_origin.y()));
+
+		if( m_is_show_canvas ){
+			printer().open_object(String().format("character-%s", unicode.cstring()));
+			printer() << canvas;
+			printer().close_object();
+		}
+#endif
+
 
 		Region active_region = canvas.calculate_active_region();
 		Bitmap active_canvas(active_region.dim());
@@ -417,10 +417,9 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 		character.width = active_canvas_downsampled.width(); //width of bitmap
 		character.height = active_canvas_downsampled.height(); //height of the bitmap
-		printer().message("(%d - %d) / %d is offset x", active_region.point().x(), m_canvas_origin.x(), m_downsample.width());
 		character.offset_x = (active_region.point().x() - m_canvas_origin.x() + m_downsample.width()/2) / m_downsample.width(); //x offset when drawing the character
-		printer().message("(%d - %d) / %d is offset x", active_region.point().y(), m_canvas_origin.y(), m_downsample.height());
-		character.offset_y = (active_region.point().y() + m_downsample.height()/2) / m_downsample.height(); //y offset when drawing the character
+		printer().message("offset y %d - (%d - %d)", active_region.point().y(), m_canvas_origin.y(), m_point_size);
+		character.offset_y = (active_region.point().y() - (m_canvas_origin.y() - m_point_size) + m_downsample.height()/2) / m_downsample.height(); //y offset when drawing the character
 
 		//add character to master canvas, canvas_x and canvas_y are location on the master canvas
 		character.canvas_x = 0; //x location on master canvas -- set when font is generated
@@ -434,7 +433,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 			printer().open_object(String().format("active character-%s", unicode.cstring()));
 			{
 				printer() << active_region;
-				printer() << active_canvas;
+				//printer() << active_canvas;
 				printer() << active_canvas_downsampled;
 				printer().open_object("character");
 				{
@@ -634,23 +633,23 @@ Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
 		temp_y = temp_y + SG_MAP_MAX/2.0f;
 	}
 
-	if( temp_x > SG_MAP_MAX ){
-		printf("Can't map this point");
+	if( temp_x > SG_MAX ){
+		printer().message("Can't map this point x %0.2f > %d", temp_x, SG_MAX);
 		exit(1);
 	}
 
-	if( temp_y > SG_MAP_MAX ){
-		printf("Can't map this point");
+	if( temp_y > SG_MAX ){
+		printer().message("Can't map this point y %0.2f > %d", temp_y, SG_MAX);
 		exit(1);
 	}
 
-	if( temp_x < -1*SG_MAP_MAX ){
-		printf("Can't map this point");
+	if( temp_x < -1*SG_MAX ){
+		printer().message("Can't map this point x %0.2f < %d", temp_x, -1*SG_MAX);
 		exit(1);
 	}
 
-	if( temp_y < -1*SG_MAP_MAX ){
-		printf("Can't map this point");
+	if( temp_y < -1*SG_MAX ){
+		printer().message("Can't map this point y %0.2f < %d", temp_y, -1*SG_MAX);
 		exit(1);
 	}
 
@@ -675,7 +674,7 @@ Region SvgFontManager::parse_bounds(const ConstString & value){
 	Token bounds_tokens(value, " ");
 
 	result << Point(roundf(bounds_tokens.at(0).to_float()), roundf(bounds_tokens.at(1).to_float()));
-	result << Dim(roundf(bounds_tokens.at(2).to_float()) - m_bounds.point().x(), roundf(bounds_tokens.at(3).to_float()) - result.point().y());
+	result << Dim(roundf(bounds_tokens.at(2).to_float()) - result.point().x(), roundf(bounds_tokens.at(3).to_float()) - result.point().y());
 
 	return result;
 
@@ -704,13 +703,8 @@ Dim SvgFontManager::calculate_canvas_dimension(const Region & bounds, sg_size_t 
 }
 
 Point SvgFontManager::calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions){
-	return Point(bounds.point().x()* -1 * canvas_dimensions.width() / (bounds.dim().width()),
-					 (bounds.dim().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.dim().height()) );
-}
-
-sg_size_t SvgFontManager::calculate_canvas_point_size(const Region & bounds, sg_size_t canvas_size, u32 units_per_em){
-	float scale = 1.0f * canvas_size / bounds.dim().maximum_dimension();
-	return units_per_em * scale;
+	return Point( (-1*bounds.point().x()) * canvas_dimensions.width() / (bounds.dim().width()),
+					  (bounds.dim().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.dim().height()) );
 }
 
 int SvgFontManager::parse_number_arguments(const char * path, float * dest, u32 n){
@@ -1102,7 +1096,6 @@ var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, c
 	for(point.x = 0; point.x < fill_points.width(); point.x++){
 		for(point.y = 0; point.y < fill_points.height(); point.y++){
 			if( (fill_points.get_pixel(point) != 0) && (bitmap.get_pixel(point) == 0) ){
-				printer().message("Pour on %d,%d", point.x, point.y);
 				bitmap.draw_pour(point, region);
 				result.push_back(point);
 			}
@@ -1235,7 +1228,11 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 
 }
 
-var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size){
+var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitmap & canvas,
+																									const var::ConstString & d,
+																									const Dim & canvas_dimensions,
+																									sg_size_t grid_size,
+																									bool is_fit_icon){
 	var::Vector<sg_vector_path_description_t> elements;
 
 	elements = process_svg_path(d);
@@ -1255,18 +1252,17 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 		map.set_rotation(0);
 		sgfx::Vector::draw_path(canvas, vector_path, map);
 
-		fit_icon_to_canvas(canvas, vector_path, map, true);
+		if( is_fit_icon ){
+			fit_icon_to_canvas(canvas, vector_path, map, true);
+		}
 
-		printer().open_object("viewable canvas") << canvas.get_viewable_region() << printer().close();
 		find_all_fill_points(canvas, fill, canvas.get_viewable_region(), grid_size);
 
 		var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
-		printer().message("%d fill points", fill_points.count());
 		for(u32 i=0; i < fill_points.count(); i++){
 			Point pour_point;
 			pour_point = fill_points.at(i);
 			pour_point.unmap(map);
-			printer().message("add pour point");
 			elements.push_back(sgfx::Vector::get_path_pour(pour_point));
 		}
 
@@ -1274,7 +1270,6 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 		canvas.clear();
 		sgfx::Vector::draw_path(canvas, vector_path, map);
 		Region active_region = canvas.calculate_active_region();
-		printer() << vector_path;
 
 		Bitmap active_bitmap( active_region.dim() );
 		active_bitmap.clear();
@@ -1310,7 +1305,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 	}
 
 
-	printer().message("modified path %s", modified_path.cstring());
+	//printer().message("modified path %s", modified_path.cstring());
 	var::Vector<sg_vector_path_description_t> result;
 	Token path_tokens(modified_path, " \n\t\r");
 	u32 i = 0;
@@ -1330,7 +1325,6 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				sscanf(path_tokens.at(i++).cstring(), scan_string.cstring(), &arg);
 			}
 		} else {
-			printer().message("Repeat of %c", command_char);
 			arg = path_tokens.at(i++).to_float();
 		}
 
@@ -1346,7 +1340,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'm':
 				//ret = parse_path_moveto_relative(d+i);
@@ -1358,7 +1352,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'L':
 				//ret = parse_path_lineto_absolute(d+i);
@@ -1371,7 +1365,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'l':
 				//ret = parse_path_lineto_relative(d+i);
@@ -1386,8 +1380,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
-				printer() << sgfx::Vector::get_path_line(p);
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'H':
 				//ret = parse_path_horizontal_lineto_absolute(d+i);
@@ -1399,7 +1392,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'h':
 				//ret = parse_path_horizontal_lineto_relative(d+i);
@@ -1412,7 +1405,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'V':
 				//ret = parse_path_vertical_lineto_absolute(d+i);
@@ -1425,7 +1418,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 
 				object.insert("command", JsonInteger(command_char));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'v':
 				//ret = parse_path_vertical_lineto_relative(d+i);
@@ -1438,7 +1431,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 
 				object.insert("command", JsonInteger(command_char));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'C':
 				//ret = parse_path_cubic_bezier_absolute(d+i);
@@ -1466,7 +1459,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y2", JsonReal( y2 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'c':
 				//ret = parse_path_cubic_bezier_relative(d+i);
@@ -1493,7 +1486,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y2", JsonReal( y2 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'S':
 				//ret = parse_path_cubic_bezier_short_absolute(d+i);
@@ -1518,7 +1511,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y2", JsonReal( y2 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 's':
 				//ret = parse_path_cubic_bezier_short_relative(d+i);
@@ -1542,7 +1535,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y2", JsonReal( y2 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'Q':
 				//ret = parse_path_quadratic_bezier_absolute(d+i);
@@ -1568,7 +1561,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y1", JsonReal( y1 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'q':
 				//ret = parse_path_quadratic_bezier_relative(d+i);
@@ -1590,7 +1583,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y1", JsonReal( y1 ));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 'T':
 				//ret = parse_path_quadratic_bezier_short_absolute(d+i);
@@ -1608,7 +1601,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 			case 't':
 				//ret = parse_path_quadratic_bezier_short_relative(d+i);
@@ -1628,7 +1621,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("command", JsonInteger(command_char));
 				object.insert("x", JsonReal( x ));
 				object.insert("y", JsonReal( y ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 
 			case 'A':
@@ -1640,7 +1633,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 
 			case 'a':
@@ -1652,7 +1645,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
-				printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 
 			case 'Z':

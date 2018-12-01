@@ -145,7 +145,9 @@ int BmpFontManager::load_font_from_bmp_files(const ConstString & def_file, const
 	def.seek(0);
 	while(get_kerning(def, kerning) == 0 ){
 		//write kerning to file
-		if( verbose > 0 ){ Ap::printer().message("Kerning %d -> %d = %d", kerning.first, kerning.second, kerning.amount); }
+		if( verbose > 0 ){
+			Ap::printer().message("Kerning %d -> %d = %d", kerning.first, kerning.second, kerning.amount);
+		}
 		sg_font_kerning_pair_t pair;
 		pair.unicode_first = kerning.first;
 		pair.unicode_second = kerning.second;
@@ -353,7 +355,6 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 		Region region;
 		Dim character_dim(character_list().at(i).width, character_list().at(i).height);
 
-		printer().message("find space for %c %dx%d", character_list().at(i).id, character_list().at(i).width, character_list().at(i).height);
 		if( character_dim.width() && character_dim.height() ){
 			do {
 
@@ -383,11 +384,13 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 		master_canvas_list.at(character_list().at(i).canvas_idx).draw_bitmap(p, bitmap_list().at(i));
 	}
 
+#if SHOW_MASTER_CANVAS
 	for(u32 i=0; i < master_canvas_list.count(); i++){
 		printer().open_object(String().format("master canvas %d", i));
 		printer() << master_canvas_list.at(i);
 		printer().close_object();
 	}
+#endif
 
 	if( font_file.write(&header, sizeof(header)) < 0 ){
 		return -1;
@@ -408,7 +411,6 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 			Data character;
 			character.refer_to(&character_list().at(j), sizeof(sg_font_char_t));
 			if( character_list().at(j).id == i ){
-				printer().message("write character %c %d", character_list().at(j).id, character_list().at(j).id);
 				if( font_file.write(character) != (int)character.size() ){
 					printer().error("failed to write kerning pair");
 					return -1;
@@ -420,7 +422,6 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 
 
 	for(u32 i=0; i < master_canvas_list.count(); i++){
-		printer().message("Write canvas to file %d %d", master_canvas_list.at(i).size(), master_canvas_list.at(i).calculate_size());
 		if( font_file.write(master_canvas_list.at(i)) != (int)master_canvas_list.at(i).size() ){
 			printer().error("Failed to write master canvas %d", i);
 			return -1;

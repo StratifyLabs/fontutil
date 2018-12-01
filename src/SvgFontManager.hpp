@@ -64,7 +64,7 @@ private:
 		TOTAL_STATE
 	};
 
-	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size);
+	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size, bool is_fit_icon);
 	var::Vector<sg_vector_path_description_t> process_svg_path(const ConstString & path);
 
 
@@ -73,7 +73,6 @@ private:
 	Region parse_bounds(const ConstString & value);
 	Dim calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size);
 	Point calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions);
-	sg_size_t calculate_canvas_point_size(const Region & bounds, sg_size_t canvas_size, u32 units_per_em);
 
 	int parse_path_moveto_absolute(const char * path);
 	int parse_path_moveto_relative(const char * path);

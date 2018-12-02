@@ -86,6 +86,8 @@ int main(int argc, char * argv[]){
 			svg_font.set_character_set( cli.get_option_argument("-character_set"));
 		}
 
+		svg_font.set_flip_y(true);
+
 		if( cli.is_option("-all") ){
 			svg_font.set_character_set("");
 		}
@@ -94,8 +96,10 @@ int main(int argc, char * argv[]){
 		SvgFontManager svg_font;
 		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
 
+		svg_font.set_flip_y(false);
+
 		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
-		svg_font.process_svg_icon_file(path);
+		svg_font.process_svg_icon_file(path, "icons.svf");
 	}
 
 	return 0;

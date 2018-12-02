@@ -16,14 +16,46 @@ SvgFontManager::SvgFontManager() {
 	m_character_set = Font::ascii_character_set();
 	m_is_show_canvas = true;
 	m_bmp_font_manager.set_is_ascii();
+	m_scale_sign_y = -1;
 }
 
 
-int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
-
+int SvgFontManager::process_svg_icon_file(const ConstString & source, const ConstString & dest){
+	File output;
 	JsonDocument json_document;
-	JsonObject top = json_document.load_from_file(source_json).to_object();
-	String file_type = top.at("name").to_string();
+	JsonArray array = json_document.load_from_file(source).to_array();
+
+	if( output.create(dest) < 0 ){
+		printer().error("Failed to create output file %s", dest.cstring());
+		return -1;
+	}
+
+	for(u32 i=0; i < array.count(); i++){
+		sg_vector_path_icon_header_t header;
+		memset(&header, 0, sizeof(header));
+		process_svg_icon(array.at(i).to_object());
+
+		if( m_vector_path_icon_list.count() > 0 ){
+			String name = array.at(i).to_object().at("title").to_string();
+			name.erase( name.find(".json") );
+			printer().message("Add %s to icon file", name.cstring());
+			strncpy(header.name, name.cstring(), 23);
+			//fill these later
+			header.count = m_vector_path_icon_list.count();
+			output.write(&header, sizeof(header));
+			for(u32 j=0; j < m_vector_path_icon_list.count(); j++){
+				output.write(&m_vector_path_icon_list.at(j), sizeof(sg_vector_path_icon_header_t));
+			}
+		}
+
+	}
+	return 0;
+}
+
+int SvgFontManager::process_svg_icon(const JsonObject & object){
+
+
+	String file_type = object.at("name").to_string();
 
 	printer().open_object("svg.convert");
 	printer().message("File type is %s", file_type.cstring());
@@ -33,28 +65,26 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
 		return -1;
 	}
 
-	JsonObject entry = top.at("childs").to_array().at(0).to_object();
+	JsonObject entry = object.at("childs").to_array().at(0).to_object();
 	printer().message("entry: %s", entry.at("name").to_string().str());
 
 	String value;
-	JsonObject attributes = top.at("attrs").to_object();
+	JsonObject attributes = object.at("attrs").to_object();
 	value = attributes.at("viewBox").to_string();
-	printer().message("bbox: %s", value.str());
+	printer().message("viewBox %s", value.str());
 
-	Region bounds;
-	Dim canvas_dimensions;
 
 	if( value.is_empty() == false ){
-		bounds = parse_bounds(value.cstring());
-		canvas_dimensions = calculate_canvas_dimension(bounds, m_canvas_size);
-		printer().open_object("SVG bounds") << bounds << printer().close();
-		printer().open_object("Canvas Dimensions") << canvas_dimensions << printer().close();
+		m_bounds = parse_bounds(value.cstring());
+		m_canvas_dimensions = calculate_canvas_dimension(m_bounds, m_canvas_size);
+		printer().open_object("SVG bounds") << m_bounds << printer().close();
+		printer().open_object("Canvas Dimensions") << m_canvas_dimensions << printer().close();
 	} else {
 		printer().warning("Failed to find bounding box");
 		return -1;
 	}
 
-	m_scale = ( SG_MAP_MAX * 1.0f ) / (bounds.dim().maximum_dimension());
+	m_scale = ( SG_MAP_MAX * 1.0f ) / (m_bounds.dim().maximum_dimension());
 	printer().message("Scaling factor is %0.2f", m_scale);
 
 	//d is the path
@@ -66,7 +96,7 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
 		if( drawing_path != "<invalid>" ){
 
 			Bitmap canvas;
-			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, canvas_dimensions, m_pour_grid_size, true);
+			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, m_canvas_dimensions, m_pour_grid_size, true);
 
 			printer().open_object("canvas size") << canvas.dim() << printer().close();
 			printer() << canvas;
@@ -75,6 +105,8 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source_json){
 	} else {
 		printer().error("can't process %s", name.cstring());
 	}
+
+	printer().close_object();
 
 	return 0;
 }
@@ -420,7 +452,7 @@ void SvgFontManager::fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_pat
 
 	Region map_region = map.region();
 	map_shift = Point(((s32)bitmap_shift.x() * SG_MAX*2 + map_region.dim().width()/2) / map_region.dim().width(),
-							((s32)bitmap_shift.y() * SG_MAX*2 + map_region.dim().height()/2) / map_region.dim().height() * -1);
+							((s32)bitmap_shift.y() * SG_MAX*2 + map_region.dim().height()/2) / map_region.dim().height() * m_scale_sign_y);
 
 	printer().message("Map Shift is %d,%d", map_shift.x(), map_shift.y());
 
@@ -430,7 +462,7 @@ void SvgFontManager::fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_pat
 
 		bitmap.clear();
 
-		sgfx::Vector::draw_path(bitmap, vector_path, map);
+		sgfx::Vector::draw(bitmap, vector_path, map);
 
 		fit_icon_to_canvas(bitmap, vector_path, map, false);
 	}
@@ -455,12 +487,12 @@ Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
 
 	//scale
 	temp_x = temp_x * m_scale;
-	temp_y = temp_y * m_scale * -1.0f;
+	temp_y = temp_y * m_scale * m_scale_sign_y;
 
 	if( is_absolute ){
 		//shift
 		temp_x = temp_x - SG_MAP_MAX/2.0f;
-		temp_y = temp_y + SG_MAP_MAX/2.0f;
+		temp_y = temp_y - m_scale_sign_y * SG_MAP_MAX/2.0f;
 	}
 
 	if( temp_x > SG_MAX ){
@@ -502,7 +534,6 @@ Region SvgFontManager::parse_bounds(const ConstString & value){
 
 Dim SvgFontManager::calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size){
 	float scale = 1.0f * canvas_size / bounds.dim().maximum_dimension();
-	printer().message("scale:%f %d %d\n", scale, canvas_size, bounds.dim().maximum_dimension());
 	return bounds.dim() * scale;
 }
 
@@ -680,7 +711,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 		canvas.clear();
 
 		map.set_rotation(0);
-		sgfx::Vector::draw_path(canvas, vector_path, map);
+		sgfx::Vector::draw(canvas, vector_path, map);
 
 		if( is_fit_icon ){
 			fit_icon_to_canvas(canvas, vector_path, map, true);
@@ -698,7 +729,8 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 
 		vector_path << elements << canvas.get_viewable_region();
 		canvas.clear();
-		sgfx::Vector::draw_path(canvas, vector_path, map);
+		//printer().open_object("vector path") << vector_path << printer().close();
+		sgfx::Vector::draw(canvas, vector_path, map);
 		Region active_region = canvas.calculate_active_region();
 
 		Bitmap active_bitmap( active_region.dim() );
@@ -707,9 +739,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 
 		//canvas = active_bitmap;
 
-		//The vector path needs to be adjusted so that the active region fills the entire vector space
 
-		//analyze_icon(canvas, vector_path, map, true);
 
 
 	}
@@ -721,8 +751,21 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const ConstString & path){
 	String modified_path;
 	bool is_command;
+	bool has_dot = false;
 	for(u32 i=0; i < path.length(); i++){
 		is_command = path_commands_sign().find(path.at(i)) != String::npos;
+
+		if( (path.at(i) == ' ') || is_command ){
+			has_dot = false;
+		}
+
+		if( path.at(i) == '.' ){
+			if( has_dot == true ){
+				modified_path << " ";
+			} else {
+				has_dot = true;
+			}
+		}
 
 		if( (path.at(i) == '-' &&
 			  (path_commands().find(path.at(i-1)) == String::npos)) ||
@@ -731,12 +774,12 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 		}
 		//- should have a space between numbers but not commands
 		modified_path << path.at(i);
-		//if( is_command ){ modified_path << " "; }
 	}
 
 
 	//printer().message("modified path %s", modified_path.cstring());
 	var::Vector<sg_vector_path_description_t> result;
+	printer().message("modified path %s", modified_path.cstring());
 	Token path_tokens(modified_path, " \n\t\r");
 	u32 i = 0;
 	char command_char = 0;
@@ -758,6 +801,11 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 			arg = path_tokens.at(i++).to_float();
 		}
 
+#if 0
+		if( result.count() > 7 ){
+			return result;
+		}
+#endif
 
 		switch(command_char){
 			case 'M':
@@ -802,7 +850,6 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				x = arg;
 				y = path_tokens.at(i++).to_float();
 				p = convert_svg_coord(x, y, false);
-				printer() << p << current_point;
 				p += current_point;
 				result.push_back(sgfx::Vector::get_path_line(p));
 				current_point = p;
@@ -816,7 +863,8 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				//ret = parse_path_horizontal_lineto_absolute(d+i);
 
 				x = arg;
-				p = convert_svg_coord(x, current_point.y());
+				p = convert_svg_coord(x, 0);
+				p.set(p.x(), current_point.y());
 				result.push_back(sgfx::Vector::get_path_line(p));
 				current_point = p;
 
@@ -918,6 +966,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("y", JsonReal( y ));
 				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
+
 			case 'S':
 				//ret = parse_path_cubic_bezier_short_absolute(d+i);
 
@@ -1051,15 +1100,26 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				break;
 
 			case 'A':
+
 				object.insert("command", JsonInteger(command_char));
 				object.insert("rx", JsonReal( arg ));
 				object.insert("ry", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("axis-rotation", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("large-arc-flag", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
-				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
-				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
+
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				p = convert_svg_coord(x, y);
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
 				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
+
+
 				break;
 
 			case 'a':
@@ -1069,8 +1129,16 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 				object.insert("axis-rotation", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("large-arc-flag", JsonReal( path_tokens.at(i++).to_float() ));
 				object.insert("sweep-flag", JsonReal( path_tokens.at(i++).to_float() ));
-				object.insert("x", JsonReal( path_tokens.at(i++).to_float() ));
-				object.insert("y", JsonReal( path_tokens.at(i++).to_float() ));
+
+				x = path_tokens.at(i++).to_float();
+				y = path_tokens.at(i++).to_float();
+
+				p = current_point + convert_svg_coord(x, y, false);
+				result.push_back(sgfx::Vector::get_path_line(p));
+				current_point = p;
+
+				object.insert("x", JsonReal( x ));
+				object.insert("y", JsonReal( y ));
 				//printer().message("%c: %s", command_char, JsonDocument().stringify(object).cstring());
 				break;
 

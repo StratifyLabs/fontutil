@@ -14,7 +14,7 @@ public:
 	SvgFontManager();
 
 	int process_svg_font_file(const ConstString & path);
-	int process_svg_icon_file(const ConstString & path);
+	int process_svg_icon_file(const ConstString & source, const ConstString & dest);
 
 	void set_canvas_size(u16 size){
 		m_canvas_size = size;
@@ -39,7 +39,17 @@ public:
 		m_downsample = dim;
 	}
 
+	void set_flip_y(bool value = true){
+		if( value ){
+			m_scale_sign_y = -1;
+		} else {
+			m_scale_sign_y = 1;
+		}
+	}
+
 private:
+
+	int process_svg_icon(const JsonObject & object);
 
 	BmpFontManager m_bmp_font_manager; //used for exporting to bmp
 
@@ -85,6 +95,7 @@ private:
 	char m_last_command_character;
 	Region m_bounds;
 	float m_scale;
+	int m_scale_sign_y;
 	u16 m_point_size;
 	var::Vector<sg_vector_path_description_t> m_vector_path_icon_list;
 
@@ -100,7 +111,6 @@ private:
 	int process_hkern(const JsonObject & kerning);
 
 	sg_size_t map_svg_value_to_bitmap(u32 value);
-
 
 
 };

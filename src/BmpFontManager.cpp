@@ -290,11 +290,13 @@ int BmpFontManager::load_font_from_bmp_files(const ConstString & def_file, const
 
 int BmpFontManager::generate_font_file(const ConstString & destination){
 	File font_file;
-	Bitmap master_canvas;
 	u32 max_character_width = 0;
 	u32 area;
 
-	if( font_file.create(destination) <  0 ){
+	String output_name;
+	output_name << destination << ".sbf";
+
+	if( font_file.create(output_name) <  0 ){
 		return -1;
 	}
 
@@ -302,6 +304,7 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	sg_font_header_t header;
 	area = 0;
 	header.max_height = 0;
+	sg_size_t min_offset_x = 65535, min_offset_y = 65535;
 
 	for(u32 i = 0; i < character_list().count(); i++){
 		if( character_list().at(i).width > max_character_width ){
@@ -312,8 +315,23 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 			header.max_height = character_list().at(i).height;
 		}
 
+		if( character_list().at(i).offset_x < min_offset_x ){
+			min_offset_x = character_list().at(i).offset_x;
+		}
+
+		if( character_list().at(i).offset_y < min_offset_y ){
+			min_offset_y = character_list().at(i).offset_y;
+		}
+
 		area += (character_list().at(i).width*character_list().at(i).height);
 	}
+
+	for(u32 i=0; i < character_list().count(); i++){
+		character_list().at(i).advance_x = character_list().at(i).width+1;
+		character_list().at(i).offset_x = 0;
+		character_list().at(i).offset_y -= min_offset_y;
+	}
+
 
 	header.version = SG_FONT_VERSION;
 	header.bits_per_pixel = 1;
@@ -325,63 +343,10 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 	header.canvas_height = header.max_height*3/2;
 	header.bits_per_pixel = 1;
 
-	if( master_canvas.set_bits_per_pixel(header.bits_per_pixel) < 0 ){
-		printer().error("sgfx does not support %d bits per pixel", header.bits_per_pixel);
-	}
 
-	printer().key("max word width", "%d", header.max_word_width);
-	printer().key("area", "%d", area);
-
-	Dim master_dim(header.canvas_width, header.canvas_height);
-
-	printer().key("master width", "%d", master_dim.width());
-	printer().key("master height", "%d", master_dim.height());
-
-	var::Vector<Bitmap> master_canvas_list;
-
-	if( master_canvas.allocate(master_dim) < 0 ){
-		printer().error("Failed to allocate memory for master canvas");
+	var::Vector<Bitmap> master_canvas_list = build_master_canvas(header);
+	if( master_canvas_list.count() == 0 ){
 		return -1;
-	}
-	master_canvas.clear();
-
-	if( bitmap_list().count() != character_list().count() ){
-		printer().error("bitmap list count (%d) != character list count (%d)", bitmap_list().count(), character_list().count());
-		return -1;
-	}
-
-	for(u32 i = 0; i < character_list().count(); i++){
-		//find a place for the character on the master bitmap
-		Region region;
-		Dim character_dim(character_list().at(i).width, character_list().at(i).height);
-
-		if( character_dim.width() && character_dim.height() ){
-			do {
-
-				for(u32 j = 0; j < master_canvas_list.count(); j++){
-					region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).dim());
-					if( region.is_valid() ){
-						character_list().at(i).canvas_x = region.x();
-						character_list().at(i).canvas_y = region.y();
-						character_list().at(i).canvas_idx = j;
-						break;
-					}
-				}
-
-				if( region.is_valid() == false ){
-					if( master_canvas_list.push_back(master_canvas) < 0 ){
-						printer().error("failed to add additional canvas");
-						return -1;
-					}
-				}
-
-			} while( !region.is_valid() );
-		}
-	}
-
-	for(u32 i = 0; i < character_list().count(); i++){
-		Point p(character_list().at(i).canvas_x, character_list().at(i).canvas_y);
-		master_canvas_list.at(character_list().at(i).canvas_idx).draw_bitmap(p, bitmap_list().at(i));
 	}
 
 #if SHOW_MASTER_CANVAS
@@ -428,20 +393,274 @@ int BmpFontManager::generate_font_file(const ConstString & destination){
 		}
 	}
 
+	File map_output;
+	if( m_map_output_file.is_empty() == false ){
+		m_map_output_file.clear();
+		m_map_output_file << destination << "-map.txt";
+		printer().message("create map file %s", m_map_output_file.cstring());
+		if( map_output.create(m_map_output_file) < 0 ){
+			printer().error("Failed to create map output file");
+		} else {
+
+			for(u32 i=0; i < character_list().count(); i++){
+
+				map_output.write("----------------------------------------------------\n");
+				map_output.write(String().format("id:%c\n", character_list().at(i).id));
+				map_output.write(String().format("width:%d\n", character_list().at(i).width));
+				map_output.write(String().format("height:%d\n", character_list().at(i).height));
+				map_output.write(String().format("advance_x:%d\n", character_list().at(i).advance_x));
+				map_output.write(String().format("offset_x:%d\n", character_list().at(i).offset_x));
+				map_output.write(String().format("offset_y:%d\n", character_list().at(i).offset_y));
+
+				Bitmap canvas(Area(character_list().at(i).width, character_list().at(i).height));
+				canvas.clear();
+				canvas.draw_sub_bitmap(Point(), master_canvas_list.at(character_list().at(i).canvas_idx),
+											  Region(
+												  Point(character_list().at(i).canvas_x, character_list().at(i).canvas_y),
+												  canvas.area()
+												  ));
+				for(sg_size_t h = 0; h < canvas.height(); h++){
+					for(sg_size_t w = 0; w < canvas.width(); w++){
+						if( canvas.get_pixel(Point(w,h)) > 0 ){
+							map_output.write("0");
+						} else {
+							map_output.write(" ");
+						}
+					}
+					map_output.write("|\n");
+				}
+			}
+
+		}
+
+
+	} else {
+		printer().message("Do not create map file");
+	}
+
+	map_output.close();
 	font_file.close();
 
 	//write the master canvas
 	return 0;
 }
 
+var::Vector<Bitmap> BmpFontManager::build_master_canvas(const sg_font_header_t & header){
+	var::Vector<Bitmap> master_canvas_list;
+	Bitmap master_canvas;
 
-int BmpFontManager::load_info(bmpfont_hdr_t & hdr, const Token & t){
+	if( master_canvas.set_bits_per_pixel(header.bits_per_pixel) < 0 ){
+		printer().error("sgfx does not support %d bits per pixel", header.bits_per_pixel);
+		return master_canvas_list;
+	}
+
+	printer().key("max word width", "%d", header.max_word_width);
+
+	Area master_dim(header.canvas_width, header.canvas_height);
+
+	printer().key("master width", "%d", master_dim.width());
+	printer().key("master height", "%d", master_dim.height());
+
+	if( master_canvas.allocate(master_dim) < 0 ){
+		printer().error("Failed to allocate memory for master canvas");
+		return master_canvas_list;
+	}
+	master_canvas.clear();
+
+	if( bitmap_list().count() != character_list().count() ){
+		printer().error("bitmap list count (%d) != character list count (%d)", bitmap_list().count(), character_list().count());
+		return master_canvas_list;
+	}
+
+	for(u32 i = 0; i < character_list().count(); i++){
+		//find a place for the character on the master bitmap
+		Region region;
+		Area character_dim(character_list().at(i).width, character_list().at(i).height);
+
+		if( character_dim.width() && character_dim.height() ){
+			do {
+
+				for(u32 j = 0; j < master_canvas_list.count(); j++){
+					region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).area());
+					if( region.is_valid() ){
+						character_list().at(i).canvas_x = region.x();
+						character_list().at(i).canvas_y = region.y();
+						character_list().at(i).canvas_idx = j;
+						break;
+					}
+				}
+
+				if( region.is_valid() == false ){
+					if( master_canvas_list.push_back(master_canvas) < 0 ){
+						printer().error("failed to add additional canvas");
+						return -1;
+					}
+				}
+
+			} while( !region.is_valid() );
+		}
+	}
+
+	for(u32 i = 0; i < character_list().count(); i++){
+		Point p(character_list().at(i).canvas_x, character_list().at(i).canvas_y);
+		master_canvas_list.at(character_list().at(i).canvas_idx).draw_bitmap(p, bitmap_list().at(i));
+	}
+
+	return master_canvas_list;
+}
+
+String BmpFontManager::parse_map_line(const var::ConstString & title, const String & line){
+	Tokenizer tokens(line, ":\n");
+
+	if( title == "id" ){
+		if( tokens.size() == 1 ){
+			return String(":");
+		}
+	}
+
+	if( tokens.size() != 2 ){
+		printer().error("Wrong token number with %s", line.cstring());
+		return String("");
+	}
+	if( tokens.at(0) != title ){
+		printer().error("Wrong title in %s -> %s", line.cstring(), title.cstring());
+		return String("");
+	}
+	return tokens.at(1);
+}
+
+int BmpFontManager::update_map(const ConstString & source, const ConstString & map){
+	File map_file;
+	File font_file;
+
+	if( map_file.open(map, File::RDONLY) < 0 ){
+		printer().error("Failed to open map file %s", map.cstring());
+		return -1;
+	}
+
+	if( font_file.open(source, File::RDWR) < 0 ){
+		printer().error("Failed to open source file %s", source.cstring());
+		return -1;
+	}
+
+
+	sg_font_header_t header;
+
+	if( font_file.read(&header, sizeof(header)) != sizeof(header) ){
+		printer().error("Failed to read font header");
+
+	}
+
+	//pull the maps in
+	String line;
+	int line_number = 0;
+	Bitmap canvas;
+
+	while( (line = map_file.gets()).is_empty() == false ){
+		sg_font_char_t character;
+		line_number++;
+
+		//first line is --------------------------------------
+		line = map_file.gets();
+		line_number++;
+		character.id = parse_map_line("id", line).at(0);
+		if( character.id == 0 ){
+			printer().error("Failed to read id on line %d ", line_number);
+			return -1;
+		}
+
+		line = map_file.gets();
+		line_number++;
+		//first line is --------------------------------------
+		character.width = parse_map_line("width", line).to_integer();
+		if( character.width == 0 ){
+			printer().error("Failed to read width on line %d", line_number);
+			return -1;
+		}
+
+		line = map_file.gets();
+		line_number++;
+		character.height = parse_map_line("height", line).to_integer();
+		if( character.height == 0 ){
+			printer().error("Failed to read height on line %d", line_number);
+			return -1;
+		}
+
+		line = map_file.gets();
+		line_number++;
+		character.advance_x = parse_map_line("advance_x", line).to_integer();
+		if( character.advance_x == 0 ){
+			printer().error("Failed to read advance_x on line %d", line_number);
+			return -1;
+		}
+
+		line = map_file.gets();
+		line_number++;
+		character.offset_x = parse_map_line("offset_x", line).to_integer();
+
+		line = map_file.gets();
+		line_number++;
+		character.offset_y = parse_map_line("offset_y", line).to_integer();
+
+		canvas.allocate(Area(character.width, character.height));
+		canvas.clear();
+		for(sg_size_t h = 0; h < character.height; h++){
+			line = map_file.gets(); line_number++;
+			if( line.find("|") != character.width ){
+				printer().error("Error on line:%d | is misaligned", line_number);
+			}
+			for(sg_size_t w = 0; w < character.width; w++){
+				sg_color_t color = 0;
+				if( line.at(w) != ' ' ){ color = 1; }
+				canvas.set_pen_color(color);
+				canvas.draw_pixel(Point(w,h));
+			}
+		}
+		bitmap_list().push_back(canvas);
+		character_list().push_back(character);
+		printer().open_object(String().format("id:%d", character.id)) << canvas << printer().close();
+	}
+
+	map_file.close();
+
+
+	var::Vector<Bitmap> master_canvas_list;
+
+	master_canvas_list = build_master_canvas(header);
+
+	font_file.seek(sizeof(sg_font_header_t) + header.kerning_pair_count*sizeof(sg_font_kerning_pair_t),
+						 File::SET);
+
+	for(u32 i = 0; i < character_list().count(); i++){
+		font_file.write(&character_list().at(i), sizeof(sg_font_char_t));
+	}
+
+
+	//now seek in source file and replace the maps
+	font_file.seek(sizeof(sg_font_header_t) +
+						header.character_count*sizeof(sg_font_char_t) +
+						header.kerning_pair_count*sizeof(sg_font_kerning_pair_t),
+						File::SET);
+
+	for(u32 i = 0; i < master_canvas_list.count(); i++){
+		font_file << master_canvas_list.at(i);
+	}
+
+
+	font_file.close();
+
+	return 0;
+
+}
+
+
+int BmpFontManager::load_info(bmpfont_hdr_t & hdr, const Tokenizer & t){
 	String str;
 	int val;
 	unsigned int i;
 
 	for(i=1; i < t.size(); i++){
-		Token m(t.at(i), "=");
+		Tokenizer m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
 			val = m.at(1).atoi();
@@ -451,13 +670,13 @@ int BmpFontManager::load_info(bmpfont_hdr_t & hdr, const Token & t){
 	return 0;
 }
 
-int BmpFontManager::load_kerning(bmpfont_kerning_t & c, const Token & t){
+int BmpFontManager::load_kerning(bmpfont_kerning_t & c, const Tokenizer & t){
 	String str;
 	int val;
 	unsigned int i;
 
 	for(i=1; i < t.size(); i++){
-		Token m(t.at(i), "=");
+		Tokenizer m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
 			val = m.at(1).atoi();
@@ -535,13 +754,13 @@ void BmpFontManager::show_char(Bmp & bmp, bmpfont_char_t c){
 	Ap::printer().message("\n");
 }
 
-int BmpFontManager::load_char(bmpfont_char_t & c, const Token & t){
+int BmpFontManager::load_char(bmpfont_char_t & c, const Tokenizer & t){
 	String str;
 	int val;
 	unsigned int i;
 
 	for(i=1; i < t.size(); i++){
-		Token m(t.at(i), "=");
+		Tokenizer m(t.at(i), "=");
 		if( m.size() == 2 ){
 			str = m.at(0);
 			val = m.at(1).atoi();
@@ -569,7 +788,7 @@ int BmpFontManager::get_max(File & def, int & w, int &h){
 	h = 0;
 
 	while( def.gets(str) != 0 ){
-		Token t(str, " \n");
+		Tokenizer t(str, " \n");
 
 		if( t.size() > 0 ){
 			strm = t.at(0);
@@ -601,7 +820,7 @@ int BmpFontManager::get_kerning(File & def, bmpfont_kerning_t & k){
 	String strm;
 
 	while( def.gets(str) != 0 ){
-		Token t(str, " \n");
+		Tokenizer t(str, " \n");
 
 		if( t.size() > 0 ){
 			strm = t.at(0);
@@ -626,7 +845,7 @@ int BmpFontManager::get_char(File & def, bmpfont_char_t & d, uint8_t ascii){
 	str.set_capacity(256);
 
 	while( def.gets(str) != 0 ){
-		Token t(str, " \n");
+		Tokenizer t(str, " \n");
 
 		if( t.size() > 0 ){
 			strm = t.at(0);
@@ -654,7 +873,7 @@ int BmpFontManager::get_kerning_count(File & def){
 
 
 	while( def.gets(str) ){
-		Token t(str, " =\n");
+		Tokenizer t(str, " =\n");
 
 		if( t.size() > 0 ){
 			strm = t.at(0);
@@ -677,7 +896,7 @@ int BmpFontManager::scan_char(File & def, bmpfont_char_t & d){
 	String strm;
 
 	while( def.gets(str) != 0 ){
-		Token t(str, " \n");
+		Tokenizer t(str, " \n");
 
 		if( t.size() > 0 ){
 			strm = t.at(0);
@@ -695,7 +914,7 @@ int BmpFontManager::scan_char(File & def, bmpfont_char_t & d){
 	return -1;
 }
 
-Region BmpFontManager::find_space_on_canvas(Bitmap & canvas, Dim dimensions){
+Region BmpFontManager::find_space_on_canvas(Bitmap & canvas, Area dimensions){
 	Region region;
 	sg_point_t point;
 
@@ -705,7 +924,7 @@ Region BmpFontManager::find_space_on_canvas(Bitmap & canvas, Dim dimensions){
 		for(point.x = 0; point.x < canvas.width() - dimensions.width(); point.x++){
 			region << point;
 			if( canvas.is_empty(region) ){
-				canvas.draw_rectangle(region.point(), region.dim());
+				canvas.draw_rectangle(region.point(), region.area());
 				return region;
 			}
 		}
@@ -715,12 +934,12 @@ Region BmpFontManager::find_space_on_canvas(Bitmap & canvas, Dim dimensions){
 }
 
 
-Region BmpFontManager::save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid){
+Region BmpFontManager::save_region_on_canvas(Bitmap & canvas, Area dimensions, int grid){
 	sg_point_t point;
 	sg_region_t region;
 	bool is_free = true;
 
-	region.dim = dimensions;
+	region.area = dimensions;
 
 	for( region.point.x = 0; region.point.x <= canvas.width() - dimensions.width(); region.point.x++){
 		for( region.point.y = 0; region.point.y <= canvas.height() - dimensions.height(); region.point.y++){

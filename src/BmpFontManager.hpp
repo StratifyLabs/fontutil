@@ -14,9 +14,15 @@ class BmpFontManager : public ApplicationPrinter {
 public:
 	BmpFontManager();
 
+	int update_map(const ConstString & source, const ConstString & map);
+
 	int convert_directory(const ConstString & dir_path, bool overwrite = false, int verbose = 1);
 
 	int generate_font_file(const ConstString & destination);
+
+	void set_map_output_file(const ConstString & path){
+		m_map_output_file = path;
+	}
 
 	void set_is_ascii(bool value = true){ m_is_ascii = true; }
 
@@ -62,9 +68,9 @@ private:
 			const ConstString & charset = "",
 			int verbose = 0);
 
-	int load_char(bmpfont_char_t & c, const Token & t);
-	int load_kerning(bmpfont_kerning_t & c, const Token & t);
-	int load_info(bmpfont_hdr_t & hdr, const Token & t);
+	int load_char(bmpfont_char_t & c, const Tokenizer & t);
+	int load_kerning(bmpfont_kerning_t & c, const Tokenizer & t);
+	int load_info(bmpfont_hdr_t & hdr, const Tokenizer & t);
 	void show_char(Bmp & bmp, bmpfont_char_t c);
 
 	int get_max(File & def, int & w, int &h);
@@ -74,14 +80,19 @@ private:
 	int scan_char(File & def, bmpfont_char_t & d);
 	int get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc);
 
-	Region save_region_on_canvas(Bitmap & canvas, Dim dimensions, int grid);
+	Region save_region_on_canvas(Bitmap & canvas, Area dimensions, int grid);
 
-	Region find_space_on_canvas(Bitmap & canvas, Dim dimensions);
+	Region find_space_on_canvas(Bitmap & canvas, Area dimensions);
+
+	var::Vector<Bitmap> build_master_canvas(const sg_font_header_t & header);
 
 	bool m_is_ascii;
 	var::Vector<sg_font_char_t> m_character_list;
 	var::Vector<sg_font_kerning_pair_t> m_kerning_pair_list;
 	var::Vector<Bitmap> m_bitmap_list;
+	var::String m_map_output_file;
+
+	String parse_map_line(const var::ConstString & title,const String & line);
 
 
 };

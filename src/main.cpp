@@ -28,6 +28,18 @@ int main(int argc, char * argv[]){
 		exit(0);
 	}
 
+	if( cli.is_option("-show_icon") ){
+		path = cli.get_option_argument("-show_icon");
+		Ap::printer().message("Show Font %s", path.cstring());
+		sg_size_t canvas_size = cli.get_option_value("-canvas_size");
+		if( canvas_size == 0 ){
+			canvas_size = 128;
+		}
+		Util::show_icon_file(path, canvas_size);
+		exit(0);
+	}
+
+
 	if( cli.is_option("-clean") ){
 		path = cli.get_option_argument("-clean");
 		Ap::printer().message("Cleaning directory %s from sbf files", path.cstring());
@@ -64,7 +76,7 @@ int main(int argc, char * argv[]){
 		bmp_font.convert_directory(path, overwrite, verbose);
 	} else if( cli.is_option("-svg") ){
 		SvgFontManager svg_font;
-		Dim downsample(1,1);
+		Area downsample(1,1);
 
 		if( cli.is_option("-downsample") ){
 			downsample.set_width( cli.get_option_value("-downsample") );
@@ -77,6 +89,10 @@ int main(int argc, char * argv[]){
 
 		if( cli.is_option("-downsample_height") ){
 			downsample.set_height( cli.get_option_value("-downsample_height") );
+		}
+
+		if( cli.is_option("-map") ){
+			svg_font.set_map_output_file( cli.get_option_argument("-map") );
 		}
 
 		svg_font.set_downsample_factor(downsample);
@@ -99,7 +115,14 @@ int main(int argc, char * argv[]){
 		svg_font.set_flip_y(false);
 
 		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
-		svg_font.process_svg_icon_file(path, "icons.svf");
+		svg_font.process_svg_icon_file(path, "icons.svic");
+	} else if( cli.is_option("-replace_map") ){
+		String map = cli.get_option_argument("-map");
+
+		BmpFontManager bmp_font_manager;
+
+		bmp_font_manager.update_map(path, map);
+
 	}
 
 	return 0;

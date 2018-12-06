@@ -30,21 +30,20 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source, const Cons
 		return -1;
 	}
 
+	Svic vector_collection(output);
+
+
+
 	for(u32 i=0; i < array.count(); i++){
-		sg_vector_path_icon_header_t header;
+		sg_vector_icon_header_t header;
 		memset(&header, 0, sizeof(header));
 		process_svg_icon(array.at(i).to_object());
 
 		if( m_vector_path_icon_list.count() > 0 ){
 			String name = array.at(i).to_object().at("title").to_string();
 			name.erase( name.find(".json") );
-			printer().message("Add %s to icon file", name.cstring());
-			strncpy(header.name, name.cstring(), 23);
-			//fill these later
-			header.count = m_vector_path_icon_list.count();
-			output.write(&header, sizeof(header));
-			for(u32 j=0; j < m_vector_path_icon_list.count(); j++){
-				output.write(&m_vector_path_icon_list.at(j), sizeof(sg_vector_path_icon_header_t));
+			if( vector_collection.append(name, m_vector_path_icon_list) < 0 ){
+				printer().error("Failed to add %s to vector collection", name.cstring());
 			}
 		}
 
@@ -84,7 +83,7 @@ int SvgFontManager::process_svg_icon(const JsonObject & object){
 		return -1;
 	}
 
-	m_scale = ( SG_MAP_MAX * 1.0f ) / (m_bounds.dim().maximum_dimension());
+	m_scale = ( SG_MAP_MAX * 1.0f ) / (m_bounds.area().maximum_dimension());
 	printer().message("Scaling factor is %0.2f", m_scale);
 
 	//d is the path
@@ -98,7 +97,7 @@ int SvgFontManager::process_svg_icon(const JsonObject & object){
 			Bitmap canvas;
 			m_vector_path_icon_list = convert_svg_path(canvas, drawing_path, m_canvas_dimensions, m_pour_grid_size, true);
 
-			printer().open_object("canvas size") << canvas.dim() << printer().close();
+			printer().open_object("canvas size") << canvas.area() << printer().close();
 			printer() << canvas;
 		}
 
@@ -164,7 +163,7 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	m_canvas_origin = calculate_canvas_origin(m_bounds, m_canvas_dimensions);
 	printer().open_object("SVG bounds") << m_bounds << printer().close();
 
-	m_point_size = 1.0f * m_canvas_dimensions.height() * units_per_em / m_bounds.dim().height() * SG_MAP_MAX / (SG_MAX);
+	m_point_size = 1.0f * m_canvas_dimensions.height() * units_per_em / m_bounds.area().height() * SG_MAP_MAX / (SG_MAX);
 
 	printer().message("missingGlyph: %s", missing_glyph.at("name").to_string().str());
 	printer().message("Glyph count %ld", glyphs.count());
@@ -187,7 +186,9 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	if( suffix != String::npos ){
 		output_name.erase(suffix);
 	}
-	output_name << String().format("-%d.sbf", m_point_size / m_downsample.height());
+	output_name << String().format("-%d", m_point_size / m_downsample.height());
+
+
 	m_bmp_font_manager.generate_font_file(output_name);
 
 	printer().message("Created %s", output_name.cstring());
@@ -369,10 +370,10 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 
 		Region active_region = canvas.calculate_active_region();
-		Bitmap active_canvas(active_region.dim());
+		Bitmap active_canvas(active_region.area());
 		active_canvas.draw_sub_bitmap(sg_point(0,0), canvas, active_region);
 
-		Dim downsampled;
+		Area downsampled;
 		downsampled.set_width( (active_canvas.width() + m_downsample.width()/2) / m_downsample.width() );
 		downsampled.set_height( (active_canvas.height() + m_downsample.height()/2) / m_downsample.height() );
 		Bitmap active_canvas_downsampled(downsampled);
@@ -386,7 +387,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 		sg_font_char_t character;
 
 		character.id = ascii_value; //unicode value
-		character.advance_x = map_svg_value_to_bitmap( x_advance.to_integer() ) / m_downsample.width(); //value from SVG file -- needs to translate to bitmap
+		character.advance_x = (map_svg_value_to_bitmap( x_advance.to_integer() ) + m_downsample.width()/2) / m_downsample.width(); //value from SVG file -- needs to translate to bitmap
 
 		//derive width, height, offset_x, offset_y from image
 		//for offset_x and offset_y what is the standard?
@@ -409,7 +410,7 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 			printer().open_object(String().format("active character-%s", unicode.cstring()));
 			{
 				printer() << active_region;
-				//printer() << active_canvas;
+				printer() << active_canvas;
 				printer() << active_canvas_downsampled;
 				printer().open_object("character");
 				{
@@ -441,18 +442,18 @@ void SvgFontManager::fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_pat
 	printer() << region;
 	printer().close_object();
 
-	bitmap_shift = Point(bitmap.width()/2 - region.dim().width()/2 - region.point().x(),
-								bitmap.height()/2 - region.dim().height()/2 - region.point().y());
+	bitmap_shift = Point(bitmap.width()/2 - region.area().width()/2 - region.point().x(),
+								bitmap.height()/2 - region.area().height()/2 - region.point().y());
 	printer().message("Offset Error is %d,%d", bitmap_shift.x(), bitmap_shift.y());
 
-	width_scale = bitmap.width() * 1.0f / region.dim().width();
-	height_scale = bitmap.height() * 1.0f / region.dim().height();
+	width_scale = bitmap.width() * 1.0f / region.area().width();
+	height_scale = bitmap.height() * 1.0f / region.area().height();
 	map_scale = (width_scale < height_scale ? width_scale : height_scale) * 0.99f;
 	printer().message("scale %0.2f", map_scale);
 
 	Region map_region = map.region();
-	map_shift = Point(((s32)bitmap_shift.x() * SG_MAX*2 + map_region.dim().width()/2) / map_region.dim().width(),
-							((s32)bitmap_shift.y() * SG_MAX*2 + map_region.dim().height()/2) / map_region.dim().height() * m_scale_sign_y);
+	map_shift = Point(((s32)bitmap_shift.x() * SG_MAX*2 + map_region.area().width()/2) / map_region.area().width(),
+							((s32)bitmap_shift.y() * SG_MAX*2 + map_region.area().height()/2) / map_region.area().height() * m_scale_sign_y);
 
 	printer().message("Map Shift is %d,%d", map_shift.x(), map_shift.y());
 
@@ -467,7 +468,7 @@ void SvgFontManager::fit_icon_to_canvas(Bitmap & bitmap, VectorPath & vector_pat
 		fit_icon_to_canvas(bitmap, vector_path, map, false);
 	}
 
-	//bitmap.draw_rectangle(region.point(), region.dim());
+	//bitmap.draw_rectangle(region.point(), region.area());
 }
 
 
@@ -524,22 +525,22 @@ Point SvgFontManager::convert_svg_coord(float x, float y, bool is_absolute){
 
 Region SvgFontManager::parse_bounds(const ConstString & value){
 	Region result;
-	Token bounds_tokens(value, " ");
+	Tokenizer bounds_tokens(value, " ");
 
 	result << Point(roundf(bounds_tokens.at(0).to_float()), roundf(bounds_tokens.at(1).to_float()));
-	result << Dim(roundf(bounds_tokens.at(2).to_float()) - result.point().x(), roundf(bounds_tokens.at(3).to_float()) - result.point().y());
+	result << Area(roundf(bounds_tokens.at(2).to_float()) - result.point().x(), roundf(bounds_tokens.at(3).to_float()) - result.point().y());
 
 	return result;
 }
 
-Dim SvgFontManager::calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size){
-	float scale = 1.0f * canvas_size / bounds.dim().maximum_dimension();
-	return bounds.dim() * scale;
+Area SvgFontManager::calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size){
+	float scale = 1.0f * canvas_size / bounds.area().maximum_dimension();
+	return bounds.area() * scale;
 }
 
-Point SvgFontManager::calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions){
-	return Point( (-1*bounds.point().x()) * canvas_dimensions.width() / (bounds.dim().width()),
-					  (bounds.dim().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.dim().height()) );
+Point SvgFontManager::calculate_canvas_origin(const Region & bounds, const Area & canvas_dimensions){
+	return Point( (-1*bounds.point().x()) * canvas_dimensions.width() / (bounds.area().width()),
+					  (bounds.area().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.area().height()) );
 }
 
 var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points){
@@ -570,8 +571,8 @@ var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, c
 void SvgFontManager::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid){
 	fill_points.clear();
 	bool is_fill;
-	for(sg_int_t x = region.point().x(); x < region.dim().width(); x+=grid){
-		for(sg_int_t y = 0; y < region.dim().height(); y+=grid){
+	for(sg_int_t x = region.point().x(); x < region.area().width(); x+=grid){
+		for(sg_int_t y = 0; y < region.area().height(); y+=grid){
 			is_fill = is_fill_point(bitmap, sg_point(x,y), region);
 			if( is_fill ){
 				fill_points.draw_pixel(sg_point(x,y));
@@ -592,8 +593,8 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 
 	sg_size_t width;
 	sg_size_t height;
-	width = region.point().x() + region.dim().width();
-	height = region.point().y() + region.dim().height();
+	width = region.point().x() + region.area().width();
+	height = region.point().y() + region.area().height();
 
 	boundary_count = 0;
 
@@ -691,7 +692,7 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 
 var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitmap & canvas,
 																									const var::ConstString & d,
-																									const Dim & canvas_dimensions,
+																									const Area & canvas_dimensions,
 																									sg_size_t grid_size,
 																									bool is_fit_icon){
 	var::Vector<sg_vector_path_description_t> elements;
@@ -702,7 +703,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 
 		canvas.set_pen(Pen(1,1));
 		VectorMap map(canvas);
-		Bitmap fill(canvas.dim());
+		Bitmap fill(canvas.area());
 
 
 		sgfx::VectorPath vector_path;
@@ -733,7 +734,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 		sgfx::Vector::draw(canvas, vector_path, map);
 		Region active_region = canvas.calculate_active_region();
 
-		Bitmap active_bitmap( active_region.dim() );
+		Bitmap active_bitmap( active_region.area() );
 		active_bitmap.clear();
 		active_bitmap.draw_sub_bitmap(Point(), canvas, active_region);
 
@@ -780,7 +781,7 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::process_svg_path(const
 	//printer().message("modified path %s", modified_path.cstring());
 	var::Vector<sg_vector_path_description_t> result;
 	printer().message("modified path %s", modified_path.cstring());
-	Token path_tokens(modified_path, " \n\t\r");
+	Tokenizer path_tokens(modified_path, " \n\t\r");
 	u32 i = 0;
 	char command_char = 0;
 	Point current_point, control_point;

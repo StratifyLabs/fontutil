@@ -11,6 +11,8 @@
 
 class Util : public ApplicationPrinter {
 public:
+
+	static void show_icon_file(const ConstString & path, sg_size_t canvas_size);
 	static void show_file_font(const ConstString & path);
 	static void show_font(Font & f);
 	static void show_system_font(int idx);

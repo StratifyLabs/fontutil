@@ -16,6 +16,10 @@ public:
 	int process_svg_font_file(const ConstString & path);
 	int process_svg_icon_file(const ConstString & source, const ConstString & dest);
 
+	void set_map_output_file(const ConstString & path){
+		m_bmp_font_manager.set_map_output_file(path);
+	}
+
 	void set_canvas_size(u16 size){
 		m_canvas_size = size;
 		if( size == 0 ){ m_canvas_size = 128; }
@@ -35,7 +39,7 @@ public:
 		m_bmp_font_manager.set_is_ascii(false);
 	}
 
-	void set_downsample_factor(const Dim & dim){
+	void set_downsample_factor(const Area & dim){
 		m_downsample = dim;
 	}
 
@@ -54,8 +58,8 @@ private:
 	BmpFontManager m_bmp_font_manager; //used for exporting to bmp
 
 	u16 m_canvas_size;
-	Dim m_downsample;
-	Dim m_canvas_dimensions;
+	Area m_downsample;
+	Area m_canvas_dimensions;
 	Point m_canvas_origin;
 	u16 m_pour_grid_size;
 	bool m_is_show_canvas;
@@ -74,12 +78,12 @@ private:
 		TOTAL_STATE
 	};
 
-	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Dim & canvas_dimensions, sg_size_t grid_size, bool is_fit_icon);
+	var::Vector<sg_vector_path_description_t> convert_svg_path(Bitmap & canvas, const var::ConstString & d, const Area & canvas_dimensions, sg_size_t grid_size, bool is_fit_icon);
 	var::Vector<sg_vector_path_description_t> process_svg_path(const ConstString & path);
 
 	Region parse_bounds(const ConstString & value);
-	Dim calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size);
-	Point calculate_canvas_origin(const Region & bounds, const Dim & canvas_dimensions);
+	Area calculate_canvas_dimension(const Region & bounds, sg_size_t canvas_size);
+	Point calculate_canvas_origin(const Region & bounds, const Area & canvas_dimensions);
 
 	Point convert_svg_coord(float x, float y, bool is_absolute = true);
 

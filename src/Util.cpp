@@ -74,12 +74,14 @@ void Util::show_font(Font & f){
 	b.allocate(Area(f.get_width()*8/4, f.get_height()*5/4));
 
 	for(i=0; i < Font::ascii_character_set().length(); i++){
-		printf("Character: %c\n", Font::ascii_character_set().at(i));
 		b.clear();
 		String string;
 		string << Font::ascii_character_set().at(i);
 		if( i < Font::ascii_character_set().length()-1 ){
 			string << Font::ascii_character_set().at(i+1);
+			printf("Character: %c\n", Font::ascii_character_set().at(i+1));
+		} else {
+			printf("Character: %c\n", Font::ascii_character_set().at(i));
 		}
 		f.draw(string, b, Point(2, 0));
 		printf("\twidth:%d height:%d xadvance:%d offsetx:%d offsety:%d\n",
@@ -87,6 +89,7 @@ void Util::show_font(Font & f){
 				 f.character().advance_x,
 				 f.character().offset_x,
 				 f.character().offset_y);
+
 		b.show();
 	}
 }

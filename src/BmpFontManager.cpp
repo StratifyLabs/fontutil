@@ -581,7 +581,7 @@ int BmpFontManager::update_map(const ConstString & source, const ConstString & m
 		line = map_file.gets();
 		line_number++;
 		character.height = parse_map_line("height", line).to_integer();
-		if( character.height == 0 ){
+		if( character.height == 0 && character.id != ' ' ){
 			printer().error("Failed to read height on line %d", line_number);
 			return -1;
 		}
@@ -616,6 +616,10 @@ int BmpFontManager::update_map(const ConstString & source, const ConstString & m
 				canvas.draw_pixel(Point(w,h));
 			}
 		}
+		if( canvas.height() == 0 ){
+			canvas.allocate(Area(32, 1));
+			canvas.clear();
+		}
 		bitmap_list().push_back(canvas);
 		character_list().push_back(character);
 		printer().open_object(String().format("id:%d", character.id)) << canvas << printer().close();
@@ -623,9 +627,12 @@ int BmpFontManager::update_map(const ConstString & source, const ConstString & m
 
 	map_file.close();
 
+	if( bitmap_list().count() != character_list().count() ){
+		printer().error("Bitmap and character mismatch %d != %d", bitmap_list().count(), character_list().count());
+		return -1;
+	}
 
 	var::Vector<Bitmap> master_canvas_list;
-
 	master_canvas_list = build_master_canvas(header);
 
 	font_file.seek(sizeof(sg_font_header_t) + header.kerning_pair_count*sizeof(sg_font_kerning_pair_t),

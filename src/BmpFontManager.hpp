@@ -4,36 +4,16 @@
 #ifndef BMPFONTMANAGER_HPP_
 #define BMPFONTMANAGER_HPP_
 
-#include <sapi/var.hpp>
-#include <sapi/sys.hpp>
-#include <sapi/fmt.hpp>
-#include <sapi/sgfx.hpp>
-#include "ApplicationPrinter.hpp"
+#include "FontObject.hpp"
+#include "BmpFontGenerator.hpp"
 
-class BmpFontManager : public ApplicationPrinter {
+class BmpFontManager : public FontObject {
 public:
 	BmpFontManager();
 
-	int update_map(const ConstString & source, const ConstString & map);
+	int convert_font(const ConstString & path);
+	int convert_directory(const ConstString & dir_path, bool overwrite = false);
 
-	int convert_directory(const ConstString & dir_path, bool overwrite = false, int verbose = 1);
-
-	int generate_font_file(const ConstString & destination);
-
-	void set_map_output_file(const ConstString & path){
-		m_map_output_file = path;
-	}
-
-	void set_is_ascii(bool value = true){ m_is_ascii = true; }
-
-	var::Vector<sg_font_char_t> & character_list(){ return m_character_list; }
-	const var::Vector<sg_font_char_t> & character_list() const { return m_character_list; }
-
-	var::Vector<sg_font_kerning_pair_t> & kerning_pair_list(){ return m_kerning_pair_list; }
-	const var::Vector<sg_font_kerning_pair_t> & kerning_pair_list() const { return m_kerning_pair_list; }
-
-	var::Vector<Bitmap> & bitmap_list(){ return m_bitmap_list; }
-	const var::Vector<Bitmap> & bitmap_list() const { return m_bitmap_list; }
 
 private:
 
@@ -62,38 +42,25 @@ private:
 		s16 amount;
 	} bmpfont_kerning_t;
 
-	int load_font_from_bmp_files(const ConstString & def_file,
-			const ConstString & bitmap_file,
-			const ConstString & font_file,
-			const ConstString & charset = "",
-			int verbose = 0);
+
+	int load_bmp_characters(const File & def);
+	int populate_lists_from_bitmap_definition(const File & def, const Bmp & bitmap_file);
+	int populate_kerning_pair_list_from_bitmap_definition(const File & def);
+
+	int create_color_index(const Bmp & bitmap_file);
 
 	int load_char(bmpfont_char_t & c, const Tokenizer & t);
-	int load_kerning(bmpfont_kerning_t & c, const Tokenizer & t);
-	int load_info(bmpfont_hdr_t & hdr, const Tokenizer & t);
-	void show_char(Bmp & bmp, bmpfont_char_t c);
+	int get_char(const File & def, bmpfont_char_t & d, uint8_t ascii);
+	Bitmap get_bitmap(const Bmp & bmp, bmpfont_char_t c);
 
-	int get_max(File & def, int & w, int &h);
-	int get_kerning_count(File & def);
-	int get_char(File & def, bmpfont_char_t & d, uint8_t ascii);
-	int get_kerning(File & def, bmpfont_kerning_t & k);
-	int scan_char(File & def, bmpfont_char_t & d);
-	int get_bitmap(Bmp & bmp, bmpfont_char_t c, Bitmap & canvas, sg_point_t loc);
+	int add_character_to_lists(const bmpfont_char_t & d, const Bmp & bitmap_file);
 
-	Region save_region_on_canvas(Bitmap & canvas, Area dimensions, int grid);
+	var::Vector<u32> m_bmp_color_index;
 
-	Region find_space_on_canvas(Bitmap & canvas, Area dimensions);
 
-	var::Vector<Bitmap> build_master_canvas(const sg_font_header_t & header);
+	var::Vector<bmpfont_char_t> m_bmp_characters;
 
-	bool m_is_ascii;
-	var::Vector<sg_font_char_t> m_character_list;
-	var::Vector<sg_font_kerning_pair_t> m_kerning_pair_list;
-	var::Vector<Bitmap> m_bitmap_list;
-	var::String m_map_output_file;
-
-	String parse_map_line(const var::ConstString & title,const String & line);
-
+	BmpFontGenerator m_generator;
 
 };
 

@@ -12,10 +12,9 @@ void Util::show_icon_file(const ConstString & path, sg_size_t canvas_size){
 		return;
 	}
 
-	Svic icon_collection(icon_file);
+	Svic icon_collection(path);
 
 	Bitmap canvas(canvas_size, canvas_size);
-	sg_vector_icon_header_t icon_header;
 	VectorMap map(canvas);
 
 	p.message("%d icons in collection", icon_collection.count());
@@ -70,27 +69,30 @@ void Util::show_font(Font & f){
 	Bitmap b;
 	u32 i;
 
-	printf("Alloc bitmap %d x %d\n", f.get_width(), f.get_height());
+
+	Ap::printer().info("Alloc bitmap %d x %d", f.get_width(), f.get_height());
+	b.set_bits_per_pixel(f.bits_per_pixel());
 	b.allocate(Area(f.get_width()*8/4, f.get_height()*5/4));
 
 	for(i=0; i < Font::ascii_character_set().length(); i++){
 		b.clear();
 		String string;
 		string << Font::ascii_character_set().at(i);
+
 		if( i < Font::ascii_character_set().length()-1 ){
 			string << Font::ascii_character_set().at(i+1);
-			printf("Character: %c\n", Font::ascii_character_set().at(i+1));
+			Ap::printer().info("Character: %c", Font::ascii_character_set().at(i+1));
 		} else {
-			printf("Character: %c\n", Font::ascii_character_set().at(i));
+			Ap::printer().info("Character: %c", Font::ascii_character_set().at(i));
 		}
 		f.draw(string, b, Point(2, 0));
-		printf("\twidth:%d height:%d xadvance:%d offsetx:%d offsety:%d\n",
+		Ap::printer().info("\twidth:%d height:%d xadvance:%d offsetx:%d offsety:%d",
 				 f.character().width, f.character().height,
 				 f.character().advance_x,
 				 f.character().offset_x,
 				 f.character().offset_y);
 
-		b.show();
+		Ap::printer() << b;
 	}
 }
 
@@ -100,15 +102,6 @@ void Util::show_system_font(int idx){
 	printf("System fonts not available\n");
 
 #else
-	Assets::init();
-	Font * f;
-
-	f = Assets::font(idx);
-	if( f != 0 ){
-		printf("Show System font %d of %d\n", idx, Assets::font_count());
-		show_font(*f);
-	} else {
-		printf("System font %d does not exist\n", idx);
-	}
+	printf("Not implemented\n");
 #endif
 }

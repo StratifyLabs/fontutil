@@ -10,27 +10,31 @@
 #include <sapi/sgfx.hpp>
 #include "SvgFontManager.hpp"
 
+
 SvgFontManager::SvgFontManager() {
 	// TODO Auto-generated constructor stub
 	m_scale = 0.0f;
-	m_character_set = Font::ascii_character_set();
 	m_is_show_canvas = true;
-	m_bmp_font_manager.set_is_ascii();
+	m_bmp_font_generator.set_is_ascii();
 	m_scale_sign_y = -1;
 }
 
 
 int SvgFontManager::process_svg_icon_file(const ConstString & source, const ConstString & dest){
-	File output;
 	JsonDocument json_document;
 	JsonArray array = json_document.load_from_file(source).to_array();
 
-	if( output.create(dest) < 0 ){
-		printer().error("Failed to create output file %s", dest.cstring());
+	if( array.count() == 0 ){
+		printer().error("not icons in %s", source.cstring());
 		return -1;
 	}
 
-	Svic vector_collection(output);
+	Svic vector_collection;
+
+	if( vector_collection.create(dest) < 0 ){
+		printer().error("Failed to create output file %s", dest.cstring());
+		return -1;
+	}
 
 
 
@@ -41,6 +45,9 @@ int SvgFontManager::process_svg_icon_file(const ConstString & source, const Cons
 
 		if( m_vector_path_icon_list.count() > 0 ){
 			String name = array.at(i).to_object().at("title").to_string();
+			if( name == "<invalid>" ){
+				name = array.at(i).to_object().at("attrs").to_object().at("data-icon").to_string();
+			}
 			name.erase( name.find(".json") );
 			if( vector_collection.append(name, m_vector_path_icon_list) < 0 ){
 				printer().error("Failed to add %s to vector collection", name.cstring());
@@ -189,7 +196,7 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	output_name << String().format("-%d", m_point_size / m_downsample.height());
 
 
-	m_bmp_font_manager.generate_font_file(output_name);
+	m_bmp_font_generator.generate_font_file(output_name);
 
 	printer().message("Created %s", output_name.cstring());
 
@@ -210,7 +217,7 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 			return 0;
 		}
 
-		if( m_character_set.find(first_string) == String::npos ){
+		if( character_set().find(first_string) == String::npos ){
 			return 0;
 		}
 
@@ -219,7 +226,7 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 			return 0;
 		}
 
-		if( m_character_set.find(second_string) == String::npos ){
+		if( character_set().find(second_string) == String::npos ){
 			return 0;
 		}
 
@@ -258,7 +265,7 @@ int SvgFontManager::process_hkern(const JsonObject & kerning){
 #endif
 		kerning_pair.horizontal_kerning = mapped_kerning * kerning_sign; //needs to be mapped to canvas size
 
-		m_bmp_font_manager.kerning_pair_list().push_back(kerning_pair);
+		m_bmp_font_generator.kerning_pair_list().push_back(kerning_pair);
 
 	} else {
 		return -1;
@@ -292,39 +299,39 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 
 	String glyph_name = glyph.at("glyphName").to_string();
 	String unicode = glyph.at("unicode").to_string();
-	u8 ascii_value;
+	u8 ascii_value = ' ';
 
 	bool is_in_character_set = false;
-	if( m_character_set.is_empty() == false ){
+	if( character_set().is_empty() == false ){
 		if( unicode.length() == 1 ){
 			ascii_value = unicode.at(0);
-			if( m_character_set.find(ascii_value) != String::npos ){
+			if( character_set().find(ascii_value) != String::npos ){
 				is_in_character_set = true;
 			}
 		} else {
 			if( glyph_name == "ampersand" ){
-				if( m_character_set.find("&") != String::npos ){
+				if( character_set().find("&") != String::npos ){
 					ascii_value = '&';
 					is_in_character_set = true;
 				}
 			}
 
-			if( glyph_name == "quotesinglbase" ){
-				if( m_character_set.find("\"") != String::npos ){
+			if( (glyph_name == "quotesinglbase") || (glyph_name == "quotedbl") ){
+				if( character_set().find("\"") != String::npos ){
 					ascii_value = '"';
 					is_in_character_set = true;
 				}
 			}
 
 			if( glyph_name == "less" ){
-				if( m_character_set.find("\"") != String::npos ){
+				if( character_set().find("\"") != String::npos ){
 					ascii_value = '<';
 					is_in_character_set = true;
 				}
 			}
 
 			if( glyph_name == "greater" ){
-				if( m_character_set.find("\"") != String::npos ){
+				if( character_set().find("\"") != String::npos ){
 					ascii_value = '>';
 					is_in_character_set = true;
 				}
@@ -402,8 +409,8 @@ int SvgFontManager::process_glyph(const JsonObject & glyph){
 		character.canvas_x = 0; //x location on master canvas -- set when font is generated
 		character.canvas_y = 0; //y location on master canvas -- set when font is generated
 
-		m_bmp_font_manager.character_list().push_back(character);
-		m_bmp_font_manager.bitmap_list().push_back(active_canvas_downsampled);
+		m_bmp_font_generator.character_list().push_back(character);
+		m_bmp_font_generator.bitmap_list().push_back(active_canvas_downsampled);
 
 #if !SHOW_ORIGIN
 		if( m_is_show_canvas ){
@@ -543,7 +550,7 @@ Point SvgFontManager::calculate_canvas_origin(const Region & bounds, const Area 
 					  (bounds.area().height() + bounds.point().y()) * canvas_dimensions.height() / (bounds.area().height()) );
 }
 
-var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points){
+var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, const var::Vector<FillPoint> & fill_points){
 
 	Region region;
 	var::Vector<sg_point_t> result;
@@ -554,13 +561,11 @@ var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, c
 	printer() << region;
 	printer().close_object();
 
-	sg_point_t point;
-	for(point.x = 0; point.x < fill_points.width(); point.x++){
-		for(point.y = 0; point.y < fill_points.height(); point.y++){
-			if( (fill_points.get_pixel(point) != 0) && (bitmap.get_pixel(point) == 0) ){
-				bitmap.draw_pour(point, region);
-				result.push_back(point);
-			}
+	for(u32 i=0; i < fill_points.count(); i++){
+		Point p = fill_points.at(i).point();
+		if( bitmap.get_pixel(p) == 0 ){
+			bitmap.draw_pour(p, region);
+			result.push_back(p);
 		}
 	}
 
@@ -568,20 +573,22 @@ var::Vector<sg_point_t> SvgFontManager::calculate_pour_points(Bitmap & bitmap, c
 
 }
 
-void SvgFontManager::find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid){
-	fill_points.clear();
-	bool is_fill;
+var::Vector<FillPoint> SvgFontManager::find_all_fill_points(const Bitmap & bitmap, const Region & region, sg_size_t grid){
+	sg_size_t spacing;
+	var::Vector<FillPoint> fill_point_spacing;
 	for(sg_int_t x = region.point().x(); x < region.area().width(); x+=grid){
 		for(sg_int_t y = 0; y < region.area().height(); y+=grid){
-			is_fill = is_fill_point(bitmap, sg_point(x,y), region);
-			if( is_fill ){
-				fill_points.draw_pixel(sg_point(x,y));
+			spacing = is_fill_point(bitmap, sg_point(x,y), region);
+			if( spacing ){
+				fill_point_spacing.push_back(FillPoint(Point(x,y), spacing));
 			}
 		}
 	}
+	fill_point_spacing.sort( var::Vector<FillPoint>::descending );
+	return fill_point_spacing;
 }
 
-bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region){
+sg_size_t SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region){
 	int boundary_count;
 	sg_color_t color;
 	sg_point_t temp = point;
@@ -593,6 +600,9 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 
 	sg_size_t width;
 	sg_size_t height;
+
+	sg_size_t spacing;
+
 	width = region.point().x() + region.area().width();
 	height = region.point().y() + region.area().height();
 
@@ -602,6 +612,8 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 		while( (temp.x < width) && (bitmap.get_pixel(temp) == 0) ){
 			temp.x++;
 		}
+
+		spacing = temp.x - point.x;
 
 		if( temp.x < width ){
 			boundary_count++;
@@ -625,6 +637,11 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 			temp.x--;
 		}
 
+		//distance to first boundary
+		if( point.x - temp.x < spacing ){
+			spacing = point.x - temp.x;
+		}
+
 		if( temp.x >= region.point().x() ){
 			boundary_count++;
 			while( (temp.x >= region.point().x()) && (bitmap.get_pixel(temp) != 0) ){
@@ -637,7 +654,7 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 	} while( temp.x >= region.point().x() );
 
 	if ((boundary_count % 2) == 0){
-		return false;
+		return 0;
 	}
 
 	temp = point;
@@ -646,6 +663,12 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 		while( (temp.y >= region.point().y()) && (bitmap.get_pixel(temp) == 0) ){
 			temp.y--;
 		}
+
+		//distance to first boundary
+		if( point.y - temp.y < spacing ){
+			spacing = point.y - temp.y;
+		}
+
 
 		if( temp.y >= region.point().y() ){
 			boundary_count++;
@@ -659,10 +682,10 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 	} while( temp.y >= region.point().y() );
 
 	if ((boundary_count % 2) == 0){
-		return false;
+		return 0;
 	}
 
-	return true;
+	//return spacing;
 
 	temp = point;
 	boundary_count = 0;
@@ -670,6 +693,12 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 		while( (temp.y < height) && (bitmap.get_pixel(temp) == 0) ){
 			temp.y++;
 		}
+
+		//distance to first boundary
+		if( temp.y - point.y < spacing ){
+			spacing = temp.y - point.y;
+		}
+
 
 		if( temp.y < height ){
 			boundary_count++;
@@ -683,10 +712,10 @@ bool SvgFontManager::is_fill_point(const Bitmap & bitmap, sg_point_t point, cons
 	} while( temp.y < height );
 
 	if ((boundary_count % 2) == 0){
-		return false;
+		return 0;
 	}
 
-	return true;
+	return spacing;
 
 }
 
@@ -701,9 +730,8 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 	if( elements.count() > 0 ){
 		canvas.allocate(canvas_dimensions);
 
-		canvas.set_pen(Pen(1,1));
+		canvas.set_pen(Pen(1,1,true));
 		VectorMap map(canvas);
-		Bitmap fill(canvas.area());
 
 
 		sgfx::VectorPath vector_path;
@@ -718,9 +746,10 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 			fit_icon_to_canvas(canvas, vector_path, map, true);
 		}
 
-		find_all_fill_points(canvas, fill, canvas.get_viewable_region(), grid_size);
+		var::Vector<FillPoint> fill_spacing_points;
+		fill_spacing_points = find_all_fill_points(canvas, canvas.get_viewable_region(), grid_size);
 
-		var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill);
+		var::Vector<sg_point_t> fill_points = calculate_pour_points(canvas, fill_spacing_points);
 		for(u32 i=0; i < fill_points.count(); i++){
 			Point pour_point;
 			pour_point = fill_points.at(i);
@@ -730,16 +759,19 @@ var::Vector<sg_vector_path_description_t> SvgFontManager::convert_svg_path(Bitma
 
 		vector_path << elements << canvas.get_viewable_region();
 		canvas.clear();
-		//printer().open_object("vector path") << vector_path << printer().close();
+		printer().open_object("vector path") << vector_path << printer().close();
 		sgfx::Vector::draw(canvas, vector_path, map);
+		canvas.set_pen(Pen(0));
+		for(u32 i=0; i < fill_points.count(); i++){
+			printer().info("pour at %d,%d", fill_points.at(i).x, fill_points.at(i).y);
+			canvas.draw_pixel(fill_points.at(i));
+		}
 		Region active_region = canvas.calculate_active_region();
 
 		Bitmap active_bitmap( active_region.area() );
 		active_bitmap.clear();
 		active_bitmap.draw_sub_bitmap(Point(), canvas, active_region);
-
 		//canvas = active_bitmap;
-
 
 
 

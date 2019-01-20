@@ -4,12 +4,35 @@
 #ifndef SVGFONTMANAGER_HPP_
 #define SVGFONTMANAGER_HPP_
 
-#include <sapi/sgfx.hpp>
-#include <sapi/var.hpp>
-#include "ApplicationPrinter.hpp"
-#include "BmpFontManager.hpp"
 
-class SvgFontManager : public ApplicationPrinter {
+#include "FontObject.hpp"
+#include "BmpFontGenerator.hpp"
+
+class FillPoint {
+public:
+
+	FillPoint(const Point & point, sg_size_t spacing){
+		m_point = point;
+		m_spacing = spacing;
+	}
+
+	Point point() const { return m_point; }
+	sg_size_t spacing() const { return m_spacing; }
+
+	bool operator < (const FillPoint & a) const {
+		return spacing() < a.spacing();
+	}
+
+	bool operator > (const FillPoint & a) const {
+		return spacing() > a.spacing();
+	}
+
+private:
+	sg_size_t m_spacing;
+	sg_point_t m_point;
+};
+
+class SvgFontManager : public FontObject {
 public:
 	SvgFontManager();
 
@@ -17,7 +40,7 @@ public:
 	int process_svg_icon_file(const ConstString & source, const ConstString & dest);
 
 	void set_map_output_file(const ConstString & path){
-		m_bmp_font_manager.set_map_output_file(path);
+		m_bmp_font_generator.set_map_output_file(path);
 	}
 
 	void set_canvas_size(u16 size){
@@ -32,11 +55,6 @@ public:
 	void set_pour_grid_size(u16 size){
 		m_pour_grid_size = size;
 		if( size == 0 ){ m_pour_grid_size = 8; }
-	}
-
-	void set_character_set(const ConstString & character_set){
-		m_character_set = character_set;
-		m_bmp_font_manager.set_is_ascii(false);
 	}
 
 	void set_downsample_factor(const Area & dim){
@@ -55,7 +73,7 @@ private:
 
 	int process_svg_icon(const JsonObject & object);
 
-	BmpFontManager m_bmp_font_manager; //used for exporting to bmp
+	BmpFontGenerator m_bmp_font_generator; //used for exporting to bmp
 
 	u16 m_canvas_size;
 	Area m_downsample;
@@ -103,13 +121,12 @@ private:
 	u16 m_point_size;
 	var::Vector<sg_vector_path_description_t> m_vector_path_icon_list;
 
-	String m_character_set;
 
 	var::Vector<sg_font_char_t> m_font_character_list;
 
-	static var::Vector<sg_point_t> calculate_pour_points(Bitmap & bitmap, const Bitmap & fill_points);
-	static void find_all_fill_points(const Bitmap & bitmap, Bitmap & fill_points, const Region & region, sg_size_t grid);
-	static bool is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region);
+	static var::Vector<sg_point_t> calculate_pour_points(Bitmap & bitmap, const var::Vector<FillPoint> & fill_points);
+	static var::Vector<FillPoint> find_all_fill_points(const Bitmap & bitmap, const Region & region, sg_size_t grid);
+	static sg_size_t is_fill_point(const Bitmap & bitmap, sg_point_t point, const Region & region);
 
 	int process_glyph(const JsonObject & glyph);
 	int process_hkern(const JsonObject & kerning);

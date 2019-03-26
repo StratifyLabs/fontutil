@@ -61,7 +61,6 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 	header.canvas_width = header.max_word_width*2*32;
 	header.canvas_height = header.max_height*3/2;
 
-
 	var::Vector<Bitmap> master_canvas_list = build_master_canvas(header);
 	if( master_canvas_list.count() == 0 ){
 		return -1;
@@ -73,13 +72,22 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 		printer().close_object();
 	}
 
-	printer().info("write header to file");
+	printer().debug("write header to file");
+
+	printer().info("header bits_per_pixel %d", header.bits_per_pixel);
+	printer().info("header max_word_width %d", header.max_word_width);
+	printer().info("header character_count %d", header.character_count);
+	printer().info("header kerning_pair_count %d", header.kerning_pair_count);
+	printer().info("header size %d", header.size);
+	printer().info("header canvas_width %d", header.canvas_width);
+	printer().info("header canvas_height %d", header.canvas_height);
+
 
 	if( font_file.write(&header, sizeof(header)) < 0 ){
 		return -1;
 	}
 
-	printer().info("write kerning pairs to file");
+	printer().debug("write kerning pairs to file");
 
 	printer().open_array("kerning pairs", Printer::DEBUG);
 
@@ -105,13 +113,14 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 			character.refer_to(&character_list().at(j), sizeof(sg_font_char_t));
 
 			if( character_list().at(j).id == i ){
-				printer().debug("write character %d to file on %d: %d,%d %dx%d",
+				printer().debug("write character %d to file on %d: %d,%d %dx%d at %d",
 									 character_list().at(j).id,
 									 character_list().at(j).canvas_idx,
 									 character_list().at(j).canvas_x,
 									 character_list().at(j).canvas_y,
 									 character_list().at(j).width,
-									 character_list().at(j).height);
+									 character_list().at(j).height,
+									 font_file.seek(0, File::CURRENT));
 				if( font_file.write(character) != (int)character.size() ){
 					printer().error("failed to write kerning pair");
 					return -1;
@@ -124,6 +133,8 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 	//write the master canvas
 	printer().info("write master canvas to file");
 	for(u32 i=0; i < master_canvas_list.count(); i++){
+		printer().debug("write master canvas %d to file at %d",
+							 i, font_file.seek(0, File::CURRENT));
 		if( font_file.write(master_canvas_list.at(i)) != (int)master_canvas_list.at(i).size() ){
 			printer().error("Failed to write master canvas %d", i);
 			return -1;
@@ -151,8 +162,11 @@ int BmpFontGenerator::generate_map_file(const sg_font_header_t & header, const v
 		map_output.write("----------------------------------------------------\n");
 		map_output.write(String().format("version:0x%04X\n", header.version));
 		map_output.write(String().format("size:%d\n", header.size));
-		map_output.write(String().format("width:%d\n", header.canvas_width));
-		map_output.write(String().format("height:%d\n", header.canvas_height));
+		map_output.write(String().format("character_count:%d\n", header.character_count));
+		map_output.write(String().format("max_word_width:%d\n", header.max_word_width));
+		map_output.write(String().format("bits_per_pixel:%d\n", header.bits_per_pixel));
+		map_output.write(String().format("canvas_width:%d\n", header.canvas_width));
+		map_output.write(String().format("canvas_height:%d\n", header.canvas_height));
 		map_output.write(String().format("kerning_pair_count:%d\n", header.kerning_pair_count));
 		map_output.write(String().format("bits_per_pixel:%d\n", header.bits_per_pixel));
 		map_output.write("----------------------------------------------------\n");
@@ -235,6 +249,11 @@ var::Vector<Bitmap> BmpFontGenerator::build_master_canvas(const sg_font_header_t
 				for(u32 j = 0; j < master_canvas_list.count(); j++){
 					region = find_space_on_canvas(master_canvas_list.at(j), bitmap_list().at(i).area());
 					if( region.is_valid() ){
+						printer().debug("allocate %d (%c) to master canvas %d at %d,%d",
+											 character_list().at(i).id,
+											 character_list().at(i).id,
+											 j,
+											 region.x(), region.y());
 						character_list().at(i).canvas_x = region.x();
 						character_list().at(i).canvas_y = region.y();
 						character_list().at(i).canvas_idx = j;
@@ -265,117 +284,202 @@ String BmpFontGenerator::parse_map_line(const var::ConstString & title, const St
 	Tokenizer tokens(line, ":\n");
 
 	if( title == "id" ){
-		if( tokens.size() == 1 ){
+		if( tokens.count() == 1 ){
 			return String(":");
 		}
 	}
 
-	if( tokens.size() != 2 ){
+	if( tokens.count() != 2 ){
 		printer().error("Wrong token number with %s", line.cstring());
 		return String("");
 	}
 	if( tokens.at(0) != title ){
-		printer().error("Wrong title in %s -> %s", line.cstring(), title.cstring());
 		return String("");
 	}
 	return tokens.at(1);
 }
 
-int BmpFontGenerator::update_map(const ConstString & source, const ConstString & map){
+String BmpFontGenerator::get_map_value(const var::Vector<var::String> & lines, const var::ConstString & title){
+
+	for(u32 i = 0; i < lines.count(); i++){
+		Tokenizer tokens(lines.at(i), ":\n");
+
+		if( title == "id" ){
+			if( tokens.count() == 1 ){
+				return String(":");
+			}
+		}
+
+		if( tokens.at(0) == title ){
+			return tokens.at(1);
+		}
+	}
+	return String();
+}
+
+int BmpFontGenerator::import_map(const ConstString & map){
 	File map_file;
-	File font_file;
+	String path;
 
-	if( map_file.open(map, File::RDONLY) < 0 ){
-		printer().error("Failed to open map file %s", map.cstring());
+	path << map << "-map.txt";
+
+	if( map_file.open(path, File::RDONLY) < 0 ){
+		printer().error("Failed to open map file %s", path.cstring());
 		return -1;
 	}
-
-	if( font_file.open(source, File::RDWR) < 0 ){
-		printer().error("Failed to open source file %s", source.cstring());
-		return -1;
-	}
-
-
 	sg_font_header_t header;
 
-	if( font_file.read(&header, sizeof(header)) != sizeof(header) ){
-		printer().error("Failed to read font header");
-
-	}
 
 	//pull the maps in
 	String line;
 	int line_number = 0;
 	Bitmap canvas;
 
-	while( (line = map_file.gets()).is_empty() == false ){
+	line = map_file.gets();
+	if( line.find("----") != 0 ){
+		printer().error("top line should be ----");
+		return -1;
+	}
+
+	Vector<String> header_lines;
+
+	printer().debug("loading header");
+	while( (line = map_file.gets()).find("----") == String::npos ){
+		line.replace("\n", "");
+		header_lines.push_back(line);
+		printer().debug("loaded header line '%s'", line.cstring());
+	}
+
+	printer().debug("loaded %d lines for header", header_lines.count());
+
+	header.version = get_map_value(header_lines, "version").to_long(16);
+	if( header.version == 0 ){
+		printer().warning("failed to read version");
+	}
+	header.character_count = get_map_value(header_lines, "character_count").to_integer();
+	if( header.character_count == 0 ){
+		printer().warning("failed to read character_count");
+	}
+	header.max_word_width = get_map_value(header_lines, "max_word_width").to_integer();
+	if( header.max_word_width == 0 ){
+		printer().warning("failed to read max_word_width");
+	}
+	header.max_height = get_map_value(header_lines, "max_height").to_integer();
+	if( header.max_height == 0 ){
+		printer().warning("failed to read max_height");
+	}
+	header.bits_per_pixel = get_map_value(header_lines, "bits_per_pixel").to_integer();
+	if( header.bits_per_pixel == 0 ){
+		printer().error("map must specify non-zero value of 1,2,4 or 8 for bits per pixel");
+		return -1;
+	}
+	set_bits_per_pixel(header.bits_per_pixel);
+
+	header.size = get_map_value(header_lines, "size").to_integer();
+	if( header.size == 0 ){
+		printer().warning("failed to read size");
+	}
+	header.kerning_pair_count = get_map_value(header_lines, "kerning_pair_count").to_integer();
+	if( header.kerning_pair_count == 0 ){
+		printer().warning("failed to read kerning_pair_count");
+	}
+	header.canvas_width = get_map_value(header_lines, "canvas_width").to_integer();
+	if( header.canvas_width == 0 ){
+		printer().warning("failed to read canvas_width");
+	}
+	header.canvas_height = get_map_value(header_lines, "canvas_height").to_integer();
+	if( header.version == 0 ){
+		printer().warning("failed to read canvas_height");
+	}
+
+	//read the kerning
+	Vector<String> kerning_lines;
+
+	while( (line = map_file.gets()).find("----") == String::npos ){
+		line.replace("\n", "");
+		kerning_lines.push_back(line);
+		printer().debug("loaded kerning line '%s'", line.cstring());
+	}
+
+
+	if( kerning_lines.count() != header.kerning_pair_count ){
+		printer().error("kerning lines does not match header %d != %d",
+							 header.kerning_pair_count, kerning_lines.count());
+		return -1;
+	}
+
+	for(u32 i=0; i < kerning_lines.count(); i++){
+		Tokenizer tokens(kerning_lines.at(i), " ");
+		if( tokens.count() != 4 ){
+			printer().error("malformed kerning line %s", kerning_lines.at(i).cstring());
+			return -1;
+		}
+
+		sg_font_kerning_pair_t pair;
+		pair.unicode_first = tokens.at(1).to_integer();
+		pair.unicode_second = tokens.at(2).to_integer();
+		pair.horizontal_kerning = tokens.at(3).to_integer();
+		m_kerning_pair_list.push_back(pair);
+	}
+
+	Vector<String> character_lines;
+	character_list().resize(0);
+
+	do {
 		sg_font_char_t character;
 		line_number++;
 
-		//first line is --------------------------------------
-		line = map_file.gets();
-		line_number++;
-		character.id = parse_map_line("id", line).at(0);
-		if( character.id == 0 ){
-			printer().error("Failed to read id on line %d ", line_number);
-			return -1;
+		character_lines.resize(0);
+
+		while( ((line = map_file.gets()).find("----") == String::npos) && (line.is_empty() == false) ){
+			line.replace("\n", "");
+			character_lines.push_back(line);
+			printer().debug("loaded character line '%s'", line.cstring());
 		}
 
-		line = map_file.gets();
-		line_number++;
-		//first line is --------------------------------------
-		character.width = parse_map_line("width", line).to_integer();
-		if( character.width == 0 ){
-			printer().error("Failed to read width on line %d", line_number);
-			return -1;
-		}
+		if( character_lines.count() > 0 ){
+			character.id = get_map_value(character_lines, "id").at(0);
+			printer().debug("loaded %d lines for character %d", character_lines.count(), character.id);
+			character.width = get_map_value(character_lines, "width").to_integer();
+			character.height = get_map_value(character_lines, "height").to_integer();
+			character.advance_x = get_map_value(character_lines, "advance_x").to_integer();
+			character.offset_x = get_map_value(character_lines, "offset_x").to_integer();
+			character.offset_y = get_map_value(character_lines, "offset_y").to_integer();
 
-		line = map_file.gets();
-		line_number++;
-		character.height = parse_map_line("height", line).to_integer();
-		if( character.height == 0 && character.id != ' ' ){
-			printer().error("Failed to read height on line %d", line_number);
-			return -1;
-		}
+			printer().debug("checking lines vs character height for %d (%d -6 == %d)",
+								 character.id, character_lines.count(), character.height);
 
-		line = map_file.gets();
-		line_number++;
-		character.advance_x = parse_map_line("advance_x", line).to_integer();
-		if( character.advance_x == 0 ){
-			printer().error("Failed to read advance_x on line %d", line_number);
-			return -1;
-		}
-
-		line = map_file.gets();
-		line_number++;
-		character.offset_x = parse_map_line("offset_x", line).to_integer();
-
-		line = map_file.gets();
-		line_number++;
-		character.offset_y = parse_map_line("offset_y", line).to_integer();
-
-		canvas.allocate(Area(character.width, character.height));
-		canvas.clear();
-		for(sg_size_t h = 0; h < character.height; h++){
-			line = map_file.gets(); line_number++;
-			if( line.find("|") != character.width ){
-				printer().error("Error on line:%d | is misaligned", line_number);
+			if( character_lines.count() - 6 != character.height ){
+				printer().error("character %c height mismatch %d != %d",
+									 character.id,
+									 character.height,
+									 character_lines.count() - 6);
+				return -1;
 			}
-			for(sg_size_t w = 0; w < character.width; w++){
-				sg_color_t color = 0;
-				if( line.at(w) != ' ' ){ color = 1; }
-				canvas.set_pen_color(color);
-				canvas.draw_pixel(Point(w,h));
-			}
-		}
-		if( canvas.height() == 0 ){
-			canvas.allocate(Area(32, 1));
+
+			canvas.allocate(Area(character.width, character.height));
 			canvas.clear();
+			for(sg_size_t h = 0; h < character.height; h++){
+				line = character_lines.at(h+6); line_number++;
+				if( line.find("|") != character.width ){
+					printer().error("Error on line:%d | is misaligned", line_number);
+				}
+				for(sg_size_t w = 0; w < character.width; w++){
+					sg_color_t color = 0;
+					if( line.at(w) != ' ' ){ color = 1; }
+					canvas.set_pen_color(color);
+					canvas.draw_pixel(Point(w,h));
+				}
+			}
+			if( canvas.height() == 0 ){
+				canvas.allocate(Area(32, 1));
+				canvas.clear();
+			}
+			bitmap_list().push_back(canvas);
+			character_list().push_back(character);
+			printer().open_object(String().format("id:%d", character.id)) << canvas << printer().close();
 		}
-		bitmap_list().push_back(canvas);
-		character_list().push_back(character);
-		printer().open_object(String().format("id:%d", character.id)) << canvas << printer().close();
-	}
+	} while( character_lines.count() );
 
 	map_file.close();
 
@@ -384,29 +488,9 @@ int BmpFontGenerator::update_map(const ConstString & source, const ConstString &
 		return -1;
 	}
 
-	var::Vector<Bitmap> master_canvas_list;
-	master_canvas_list = build_master_canvas(header);
-
-	font_file.seek(sizeof(sg_font_header_t) + header.kerning_pair_count*sizeof(sg_font_kerning_pair_t),
-						File::SET);
-
-	for(u32 i = 0; i < character_list().count(); i++){
-		font_file.write(&character_list().at(i), sizeof(sg_font_char_t));
+	for(u32 i=0; i < character_list().count(); i++){
+		printer().debug("character list[%d] = %d", i, character_list().at(i).id);
 	}
-
-
-	//now seek in source file and replace the maps
-	font_file.seek(sizeof(sg_font_header_t) +
-						header.character_count*sizeof(sg_font_char_t) +
-						header.kerning_pair_count*sizeof(sg_font_kerning_pair_t),
-						File::SET);
-
-	for(u32 i = 0; i < master_canvas_list.count(); i++){
-		font_file << master_canvas_list.at(i);
-	}
-
-
-	font_file.close();
 
 	return 0;
 

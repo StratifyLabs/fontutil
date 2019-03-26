@@ -32,7 +32,10 @@ int main(int argc, char * argv[]){
 			Ap::printer().error("use --show=<path>");
 			exit(0);
 		}
-		Util::show_file_font(path);
+
+		bool is_details = cli.get_option("details") == "true";
+
+		Util::show_file_font(path, is_details);
 		exit(0);
 	}
 
@@ -150,13 +153,19 @@ int main(int argc, char * argv[]){
 
 		svg_font.process_svg_icon_file(path, "icons.svic");
 
-	} else if( cli.is_option("-replace_map") ){
-		String map = cli.get_option_argument("-map");
+	} else if( cli.get_option("from_map") == "true" ){
+
+		if( map.is_empty() ){
+			Ap::printer().error("specify map file with --map=<map> '-map.txt' is added automatically");
+			return 1;
+		}
 
 		BmpFontGenerator bmp_font_generator;
-
-		bmp_font_generator.update_map(path, map);
-
+		if( bmp_font_generator.import_map(map) == 0 ){
+			if( bmp_font_generator.generate_font_file(map) < 0 ){
+				return 1;
+			}
+		}
 	}
 
 	return 0;

@@ -12,7 +12,7 @@ public:
 	}
 
 
-	int update_map(const ConstString & source, const ConstString & map);
+	int import_map(const ConstString & map);
 	int generate_font_file(const ConstString & destination);
 
 	var::Vector<sg_font_char_t> & character_list(){ return m_character_list; }
@@ -31,6 +31,8 @@ private:
 
 	Region find_space_on_canvas(Bitmap & canvas, Area dimensions);
 	String parse_map_line(const var::ConstString & title,const String & line);
+	String get_map_value(const var::Vector<var::String> & lines, const var::ConstString & title);
+
 	var::String m_map_output_file;
 	bool m_is_ascii;
 	var::Vector<Bitmap> build_master_canvas(const sg_font_header_t & header);

@@ -60,7 +60,6 @@ int main(int argc, char * argv[]){
 			exit(0);
 	}
 
-
 	if( cli.get_option("show_icon") == "true" ){
 		path = cli.get_option_argument("-show_icon");
 		Ap::printer().message("Show Font %s", path.cstring());
@@ -80,7 +79,6 @@ int main(int argc, char * argv[]){
 		exit(0);
 	}
 
-
 	path = cli.get_option("input");
 	if( path.is_empty() ){
 		path = "/home";
@@ -92,9 +90,7 @@ int main(int argc, char * argv[]){
 		overwrite = false;
 	}
 
-	verbose = cli.get_option("verbose").to_integer();
-
-	path = cli.get_option("convert-bmp");
+	path = cli.get_option("convert_bmp");
 	if( path.is_empty() == false ){
 		if( path == "true" ){
 			printf("use --convert-bmp=<name>");
@@ -109,41 +105,47 @@ int main(int argc, char * argv[]){
 		exit(0);
 	}
 
-	if( cli.is_option("-svg") ){
+	path = cli.get_option("convert_svg");
+	if( path.is_empty() == false ){
 		SvgFontManager svg_font;
 		Area downsample(1,1);
 
-		if( cli.is_option("-downsample") ){
-			downsample.set_width( cli.get_option_value("-downsample") );
+		String option = cli.get_option("downsample");
+		if( !option.is_empty() ){
+			downsample.set_width( option.to_integer() );
 			downsample.set_height( downsample.width() );
 		}
 
-		if( cli.is_option("-downsample_width") ){
-			downsample.set_width( cli.get_option_value("-downsample_width") );
+		option = cli.get_option("downsample_width");
+		if( !option.is_empty() ){
+			downsample.set_width( option.to_integer() );
 		}
 
-		if( cli.is_option("-downsample_height") ){
-			downsample.set_height( cli.get_option_value("-downsample_height") );
+		option = cli.get_option("downsample_height");
+		if( !option.is_empty() ){
+			downsample.set_height( option.to_integer() );
 		}
 
-		if( cli.is_option("-map") ){
-			svg_font.set_map_output_file( cli.get_option_argument("-map") );
+		if( map == "true" ){
+			svg_font.set_generate_map(true);
 		}
 
 		svg_font.set_downsample_factor(downsample);
-		svg_font.set_canvas_size( cli.get_option_value("-canvas_size") );
-		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
-		if( cli.is_option("-character_set") ){
-			svg_font.set_character_set( cli.get_option_argument("-character_set"));
+		svg_font.set_canvas_size( cli.get_option("canvas_size").to_integer() );
+		svg_font.set_pour_grid_size( cli.get_option("pour_grid_size").to_integer() );
+
+		option = cli.get_option("character_set");
+		if( option.is_empty() == false ){
+			svg_font.set_character_set(option);
 		}
 
 		svg_font.set_flip_y(true);
 
-		if( cli.is_option("-all") ){
+		if( cli.get_option("all") == "true" ){
 			svg_font.set_character_set("");
 		}
 		svg_font.process_svg_font_file(path);
-	} else if( cli.get_option("icon") == "true"){
+	} else if( cli.get_option("icon") == "true" ){
 		SvgFontManager svg_font;
 		svg_font.set_pour_grid_size( cli.get_option_value("-pour_grid_size"));
 

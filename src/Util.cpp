@@ -101,7 +101,7 @@ void Util::show_file_font(const ConstString & path, bool is_details){
 		}
 
 		Ap::printer().open_object("header");
-		Ap::printer().key("version", "%d", header->version);
+		Ap::printer().key("version", "0x%X", header->version);
 		Ap::printer().key("character_count", "%d", header->character_count);
 		Ap::printer().key("max_word_width", "%d", header->max_word_width);
 		Ap::printer().key("max_height", "%d", header->max_height);

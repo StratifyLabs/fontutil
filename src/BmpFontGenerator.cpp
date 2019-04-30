@@ -12,6 +12,7 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 	String output_name;
 	output_name << destination << ".sbf";
 
+	printer().info("Create output font file '%s'", output_name.cstring());
 	if( font_file.create(output_name) <  0 ){
 		return -1;
 	}
@@ -142,7 +143,7 @@ int BmpFontGenerator::generate_font_file(const ConstString & destination){
 	}
 
 	if( is_generate_map() ){
-		printer().info("generate map file");
+		printer().info("generate map file '%s'", m_map_output_file.cstring());
 		generate_map_file(header, master_canvas_list);
 	}
 
@@ -155,7 +156,7 @@ int BmpFontGenerator::generate_map_file(const sg_font_header_t & header, const v
 	File map_output;
 	printer().message("create map file %s", m_map_output_file.cstring());
 	if( map_output.create(m_map_output_file) < 0 ){
-		printer().error("Failed to create map output file");
+		printer().error("Failed to create map output file '%s'", m_map_output_file.cstring());
 	} else {
 
 		printer().info("create map with %d bits per pixel", master_canvas_list.at(0).bits_per_pixel());

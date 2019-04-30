@@ -195,6 +195,12 @@ int SvgFontManager::process_svg_font_file(const ConstString & path){
 	}
 	output_name << String().format("-%d", m_point_size / m_downsample.height());
 
+	m_bmp_font_generator.set_generate_map( is_generate_map() );
+	if( is_generate_map() ){
+		String map_file;
+		map_file << output_name << "-map.txt";
+		m_bmp_font_generator.set_map_output_file(map_file);
+	}
 
 	m_bmp_font_generator.generate_font_file(output_name);
 
